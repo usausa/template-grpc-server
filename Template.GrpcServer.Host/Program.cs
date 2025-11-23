@@ -1,33 +1,50 @@
-using Serilog;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
-using Template.GrpcServer.Host.Services;
+using Template.GrpcServer.Host.Application;
 
 //--------------------------------------------------------------------------------
 // Configure builder
 //--------------------------------------------------------------------------------
 Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : default
+});
 
-var builder = WebApplication.CreateBuilder(args);
+// System
+builder.ConfigureSystem();
 
-// Log
-builder.Logging.ClearProviders();
-builder.Services.AddSerilog(option => option.ReadFrom.Configuration(builder.Configuration), writeToProviders: true);
+// Host
+builder.ConfigureHost();
+
+// Logging
+builder.ConfigureLogging();
 
 // gRPC
-builder.Services.AddGrpc();
+builder.ConfigureGrpc();
 
-// Component
-// TODO
+// Health
+builder.ConfigureHealth();
+// Metrics
+builder.ConfigureTelemetry();
+
+// Components
+builder.ConfigureComponents();
 
 //--------------------------------------------------------------------------------
 // Configure the HTTP request pipeline.
 //--------------------------------------------------------------------------------
 var app = builder.Build();
 
-// gRPC
-app.MapGrpcService<GreeterService>();
+// Startup information
+app.LogStartupInformation();
 
-// Default
-app.MapGet("/", () => "gRPC Server");
+// End point
+app.MapEndpoints();
 
-app.Run();
+// Initialize
+await app.InitializeApplicationAsync();
+
+// Run
+await app.RunAsync();

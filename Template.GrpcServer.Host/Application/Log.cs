@@ -1,4 +1,4 @@
-namespace Template.GrpcServer.Host;
+namespace Template.GrpcServer.Host.Application;
 
 internal static partial class Log
 {
@@ -24,9 +24,4 @@ internal static partial class Log
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Telemetry: otelEndPoint=[{otelEndPoint}], usePrometheus=[{usePrometheus}]")]
     public static partial void InfoServiceSettingsTelemetry(this ILogger logger, string otelEndPoint, bool usePrometheus);
-
-    // Error
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Unknown exception.")]
-    public static partial void ErrorUnknownException(this ILogger logger, Exception ex);
 }

@@ -1,159 +1,301 @@
 namespace Template.GrpcServer.Host.Application;
 
+using System.Runtime.InteropServices;
+
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.FeatureManagement;
+
+using MiniDataProfiler;
+using MiniDataProfiler.Listener.Logging;
+using MiniDataProfiler.Listener.OpenTelemetry;
+
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+using Serilog;
+
+using Smart.Data;
+using Smart.Data.Accessor.Extensions.DependencyInjection;
+
+using Template.GrpcServer.Host.Application.Telemetry;
+using Template.GrpcServer.Host.Services;
+using Template.GrpcServer.Host.Settings;
+
 public static class ApplicationExtensions
 {
-    ////--------------------------------------------------------------------------------
-    //// Configuration
-    ////--------------------------------------------------------------------------------
+    private const string HealthEndpointPath = "/health";
+    private const string AlivenessEndpointPath = "/alive";
 
-    //public static IHostApplicationBuilder ConfigureConfigurationDefaults(this WebApplicationBuilder builder)
-    //{
-    //    return builder.ConfigureConfigurationDefaults(true);
-    //}
+    private const string MetricsEndpointPath = "/metrics";
 
-    ////--------------------------------------------------------------------------------
-    //// Logging
-    ////--------------------------------------------------------------------------------
+    //--------------------------------------------------------------------------------
+    // System
+    //--------------------------------------------------------------------------------
 
-    //public static IHostApplicationBuilder ConfigureLogging(this IHostApplicationBuilder builder)
-    //{
-    //    builder.ConfigureLoggingDefaults(static options =>
-    //    {
-    //        options.Enrich.With(new CallbackEnricher(nameof(LoggingContext.RemoteIpAddress), () => LoggingContext.RemoteIpAddress ?? string.Empty));
-    //        options.Enrich.With(new CallbackEnricher(nameof(LoggingContext.ClientId), () => LoggingContext.ClientId ?? string.Empty));
-    //        options.Enrich.With(new CallbackEnricher(nameof(LoggingContext.UserId), () => LoggingContext.UserId ?? string.Empty));
-    //    });
+    public static IHostApplicationBuilder ConfigureSystem(this WebApplicationBuilder builder)
+    {
+        // Path
+        builder.Configuration.SetBasePath(AppContext.BaseDirectory);
 
-    //    return builder;
-    //}
+        // Encoding
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-    //public static WebApplication UseLoggingContext(this WebApplication app)
-    //{
-    //    // For log
-    //    app.UseMiddleware<LoggingContextMiddleware>();
+        return builder;
+    }
 
-    //    return app;
-    //}
+    //--------------------------------------------------------------------------------
+    // Host
+    //--------------------------------------------------------------------------------
 
-    ////--------------------------------------------------------------------------------
-    //// API
-    ////--------------------------------------------------------------------------------
+    public static IHostApplicationBuilder ConfigureHost(this WebApplicationBuilder builder)
+    {
+        // Service
+        builder.Host
+            .UseWindowsService()
+            .UseSystemd();
 
-    //public static IHostApplicationBuilder ConfigureApi(this IHostApplicationBuilder builder)
-    //{
-    //    builder.Services.AddSingleton<CredentialFilter>();
-    //    builder.Services.AddSingleton(new CredentialFilterSetting
-    //    {
-    //        EnableSimulation = builder.Configuration.IsSimulationMode()
-    //    });
+        // Feature management
+        builder.Services.AddFeatureManagement();
 
-    //    builder.ConfigureApiDefaults(static options =>
-    //    {
-    //        options.Filters.AddService<CredentialFilter>(Int32.MaxValue);
-    //    });
+        return builder;
+    }
 
-    //    return builder;
-    //}
+    //--------------------------------------------------------------------------------
+    // Logging
+    //--------------------------------------------------------------------------------
 
-    ////--------------------------------------------------------------------------------
-    //// Swagger
-    ////--------------------------------------------------------------------------------
+    public static IHostApplicationBuilder ConfigureLogging(this IHostApplicationBuilder builder)
+    {
+        var useOtlpExporter = builder.Configuration.IsOtelExporterEnabled();
 
-    //public static IHostApplicationBuilder ConfigureSwagger(this IHostApplicationBuilder builder)
-    //{
-    //    if (!builder.Environment.IsProduction())
-    //    {
-    //        builder.Services.AddSingleton(new SwaggerSetting
-    //        {
-    //            IsClientIdDirect = !builder.Configuration.IsOpenApiOutputMode(),
-    //            IsSimulationMode = builder.Configuration.IsSimulationMode()
-    //        });
+        // Application log
+        builder.Logging.ClearProviders();
+        builder.Services.AddSerilog(options => options.ReadFrom.Configuration(builder.Configuration), writeToProviders: useOtlpExporter);
 
-    //        builder.ConfigureSwaggerDefaults<Tags>(options =>
-    //        {
-    //            options.SwaggerDoc("xxx", new OpenApiInfo { Title = "xxx/API", Version = "0.1.0" });
+        return builder;
+    }
 
-    //            // Custom
-    //            options.DocumentFilter<ApplicationDocumentFilter>();
-    //            options.OperationFilter<CredentialOperationFilter>();
+    //--------------------------------------------------------------------------------
+    // gRPC
+    //--------------------------------------------------------------------------------
 
-    //            // Order
-    //            options.OrderActionsBy(api =>
-    //            {
-    //                var area = api.ActionDescriptor.RouteValues["area"];
-    //                var controller = api.ActionDescriptor.RouteValues["controller"];
-    //                return $"{AreaOrders.GetOrder(area)}_{controller}";
-    //            });
-    //        }, ["Template.Api.Areas.Default", "Template.Api.Areas"]);
-    //    }
+    public static IHostApplicationBuilder ConfigureGrpc(this IHostApplicationBuilder builder)
+    {
+        builder.Services.AddGrpc();
 
-    //    return builder;
-    //}
+        return builder;
+    }
 
-    //public static WebApplication UseSwagger(this WebApplication app)
-    //{
-    //    if (!app.Environment.IsProduction())
-    //    {
-    //        app.UseSwaggerDefaults(static options =>
-    //        {
-    //            options.SwaggerEndpoint("xxx/swagger.json", "xxx/API");
-    //        });
-    //    }
+    //--------------------------------------------------------------------------------
+    // Health
+    //--------------------------------------------------------------------------------
 
-    //    return app;
-    //}
+    public static IHostApplicationBuilder ConfigureHealth(this IHostApplicationBuilder builder)
+    {
+        builder.Services
+            .AddHealthChecks()
+            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
 
-    ////--------------------------------------------------------------------------------
-    //// Components
-    ////--------------------------------------------------------------------------------
+        return builder;
+    }
 
-    //public static IHostApplicationBuilder ConfigureComponent(this IHostApplicationBuilder builder)
-    //{
-    //    // Setting
-    //    builder.Services.Configure<LimitSetting>(builder.Configuration.GetSection("Limit"));
-    //    builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<LimitSetting>>().Value);
-    //    builder.Services.Configure<ReportSetting>(builder.Configuration.GetSection("Report"));
-    //    builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ReportSetting>>().Value);
+    //--------------------------------------------------------------------------------
+    // Telemetry
+    //--------------------------------------------------------------------------------
 
-    //    // Default
-    //    builder.ConfigureComponentDefaults(static (p, c) => c.AddFragmentProfile(p));
+    public static IHostApplicationBuilder ConfigureTelemetry(this IHostApplicationBuilder builder)
+    {
+        var useOtlpExporter = builder.Configuration.IsOtelExporterEnabled();
+        var usePrometheusExporter = builder.Configuration.IsPrometheusExporterEnabled();
 
-    //    return builder;
-    //}
+        var telemetry = builder.Services.AddOpenTelemetry()
+            .ConfigureResource(config =>
+            {
+                // TODO ?
+                config.AddService("GrpcServer", serviceInstanceId: Environment.MachineName);
+            });
 
-    //[MapConfigExtension]
-    //public static partial void AddFragmentProfile(this IMapperConfigurationExpression expression, IServiceProvider provider);
+        // Log
+        if (useOtlpExporter)
+        {
+            builder.Logging.AddOpenTelemetry(logging =>
+            {
+                logging.IncludeFormattedMessage = true;
+                logging.IncludeScopes = true;
+            });
+            builder.Services.Configure<OpenTelemetryLoggerOptions>(static logging =>
+            {
+                logging.AddOtlpExporter();
+            });
+        }
 
-    ////--------------------------------------------------------------------------------
-    //// Configuration
-    ////--------------------------------------------------------------------------------
+        // Metrics
+        if (useOtlpExporter || usePrometheusExporter)
+        {
+            telemetry
+                .WithMetrics(metrics =>
+                {
+                    metrics
+                        .AddRuntimeInstrumentation()
+                        .AddHttpClientInstrumentation()
+                        .AddAspNetCoreInstrumentation()
+                        .AddApplicationInstrumentation();
 
-    //private static bool IsSimulationMode(this IConfiguration configuration) =>
-    //    Boolean.TryParse(configuration["SIMULATION_MODE"], out var value) && value;
+                    if (useOtlpExporter)
+                    {
+                        metrics.AddOtlpExporter();
+                    }
 
-    ////--------------------------------------------------------------------------------
-    //// Startup
-    ////--------------------------------------------------------------------------------
+                    if (usePrometheusExporter)
+                    {
+                        metrics.AddPrometheusExporter(static config =>
+                        {
+                            config.ScrapeEndpointPath = MetricsEndpointPath;
+                        });
+                    }
+                });
+        }
 
-    //public static void LogStartupInformation(this WebApplication app)
-    //{
-    //    ThreadPool.GetMinThreads(out var workerThreads, out var completionPortThreads);
-    //    app.Logger.InfoServiceStart();
-    //    app.Logger.InfoServiceSettingsRuntime(RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription, RuntimeInformation.RuntimeIdentifier);
-    //    app.Logger.InfoServiceSettingsEnvironment(typeof(Program).Assembly.GetName().Version, Environment.CurrentDirectory);
-    //    app.Logger.InfoServiceSettingsGC(GCSettings.IsServerGC, GCSettings.LatencyMode, GCSettings.LargeObjectHeapCompactionMode);
-    //    app.Logger.InfoServiceSettingsThreadPool(workerThreads, completionPortThreads);
-    //    app.Logger.InfoServiceSettingsTelemetry(app.Configuration.GetOtelExporterEndpoint(), app.Configuration.IsPrometheusExporterEnabled());
-    //    app.Logger.InfoServiceSettingsMode(app.Configuration.IsSimulationMode());
-    //}
+        // Trace
+        if (useOtlpExporter)
+        {
+            telemetry
+                .WithTracing(tracing =>
+                {
+                    tracing
+                        .AddSource(builder.Environment.ApplicationName)
+                        .AddAspNetCoreInstrumentation()
+                        .AddGrpcClientInstrumentation()
+                        .AddHttpClientInstrumentation()
+                        .AddMiniDataProfilerInstrumentation()
+                        .AddApplicationInstrumentation();
 
-    ////--------------------------------------------------------------------------------
-    //// Startup
-    ////--------------------------------------------------------------------------------
+                    if (builder.Environment.IsDevelopment())
+                    {
+                        tracing.SetSampler(new AlwaysOnSampler());
+                    }
 
-    //public static async ValueTask InitializeApplicationAsync(this WebApplication app)
-    //{
-    //    var calendarManager = app.Services.GetRequiredService<ICalenderManager>();
-    //    await calendarManager.LoadCalendarHolidayAsync();
-    //}
+                    tracing.AddOtlpExporter();
+
+                    if (!builder.Environment.IsProduction())
+                    {
+                        tracing
+                            .AddAspNetCoreInstrumentation(options =>
+                            {
+                                options.Filter = context =>
+                                {
+                                    var path = context.Request.Path;
+                                    return !path.StartsWithSegments(HealthEndpointPath, StringComparison.OrdinalIgnoreCase) &&
+                                           !path.StartsWithSegments(AlivenessEndpointPath, StringComparison.OrdinalIgnoreCase) &&
+                                           !path.StartsWithSegments(MetricsEndpointPath, StringComparison.OrdinalIgnoreCase);
+                                };
+                            });
+                    }
+                });
+        }
+
+        // Custom instrument
+        builder.Services.AddApplicationInstrument();
+
+        return builder;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Components
+    //--------------------------------------------------------------------------------
+
+    public static IHostApplicationBuilder ConfigureComponents(this IHostApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<IDbProvider>(static p =>
+        {
+            var configuration = p.GetRequiredService<IConfiguration>();
+            var connectionString = configuration.GetConnectionString("Default");
+
+            var settings = p.GetRequiredService<ProfilerSetting>();
+            if (settings.SqlTrace)
+            {
+                var logListener = new LoggingListener(p.GetRequiredService<ILogger<LoggingListener>>(), new LoggingListenerOption());
+                var telemetryListener = new OpenTelemetryListener(new OpenTelemetryListenerOption());
+                var listener = new ChainListener(logListener, telemetryListener);
+                return new DelegateDbProvider(() => new ProfileDbConnection(listener, new SqliteConnection(connectionString)));
+            }
+
+            return new DelegateDbProvider(() => new SqliteConnection(connectionString));
+        });
+
+        // TODO option
+        builder.Services.AddDataAccessor();
+
+        // Setting
+        builder.Services.Configure<ProfilerSetting>(builder.Configuration.GetSection("Profiler"));
+        builder.Services.AddSingleton<ProfilerSetting>(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
+        builder.Services.Configure<ServerSetting>(builder.Configuration.GetSection("Server"));
+        builder.Services.AddSingleton<ServerSetting>(static p => p.GetRequiredService<IOptions<ServerSetting>>().Value);
+
+        return builder;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Information
+    //--------------------------------------------------------------------------------
+
+    public static void LogStartupInformation(this WebApplication app)
+    {
+        ThreadPool.GetMinThreads(out var workerThreads, out var completionPortThreads);
+        app.Logger.InfoServiceStart();
+        app.Logger.InfoServiceSettingsRuntime(RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription, RuntimeInformation.RuntimeIdentifier);
+        app.Logger.InfoServiceSettingsEnvironment(typeof(Program).Assembly.GetName().Version, Environment.CurrentDirectory);
+        app.Logger.InfoServiceSettingsGC(GCSettings.IsServerGC, GCSettings.LatencyMode, GCSettings.LargeObjectHeapCompactionMode);
+        app.Logger.InfoServiceSettingsThreadPool(workerThreads, completionPortThreads);
+        app.Logger.InfoServiceSettingsTelemetry(app.Configuration.GetOtelExporterEndpoint(), app.Configuration.IsPrometheusExporterEnabled());
+    }
+
+    //--------------------------------------------------------------------------------
+    // End point
+    //--------------------------------------------------------------------------------
+
+    public static WebApplication MapEndpoints(this WebApplication app)
+    {
+        // gRPC
+        app.MapGrpcService<GreeterService>();
+
+        // Health
+        app.MapHealthChecks(HealthEndpointPath);
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("live")
+        });
+
+        // Root
+        app.MapGet("/", () => "gRPC Server");
+
+        return app;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Startup
+    //--------------------------------------------------------------------------------
+
+    public static ValueTask InitializeApplicationAsync(this WebApplication app)
+    {
+        // TODO data initialize
+        return ValueTask.CompletedTask;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Configuration
+    //--------------------------------------------------------------------------------
+
+    private static bool IsOtelExporterEnabled(this IConfiguration configuration) =>
+        !String.IsNullOrWhiteSpace(configuration.GetOtelExporterEndpoint());
+
+    private static string GetOtelExporterEndpoint(this IConfiguration configuration) =>
+        configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? string.Empty;
+
+    private static bool IsPrometheusExporterEnabled(this IConfiguration configuration) =>
+        Boolean.TryParse(configuration["OTEL_EXPORTER_PROMETHEUS"], out var value) && value;
 }
