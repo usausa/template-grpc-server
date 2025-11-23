@@ -1,0 +1,14 @@
+﻿<Project Sdk="Aspire.AppHost.Sdk/13.0.0">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <CodeAnalysisRuleSet>..\Analyzers.ruleset</CodeAnalysisRuleSet>
+    <UserSecretsId>0b31e68c-5218-459c-9c06-cabf182bca59</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Template.GrpcServer.Host\Template.GrpcServer.Host.csproj" />
+  </ItemGroup>
+
+</Project>
