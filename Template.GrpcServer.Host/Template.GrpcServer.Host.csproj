@@ -18,7 +18,7 @@
     <PackageReference Include="MiniDataProfiler.Listener.Logging" Version="1.1.0" />
     <PackageReference Include="MiniDataProfiler.Listener.OpenTelemetry" Version="1.1.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.14.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.7.0-rc.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.HttpListener" Version="1.14.0-beta.1" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.14.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.14.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.GrpcNetClient" Version="1.14.0-beta.1" />
@@ -35,7 +35,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="..\Protos\**\*.proto" LinkBase="Protos" GrpcServices="Server"/>
+    <Protobuf Include="..\Protos\**\*.proto" LinkBase="Protos" GrpcServices="Server" />
   </ItemGroup>
 
   <ItemGroup>

@@ -22,6 +22,6 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "RateLimit: window=[{window}], permitLimit=[{permitLimit}], queueLimit=[{queueLimit}]")]
     public static partial void InfoServiceSettingsRateLimit(this ILogger logger, int window, int permitLimit, int queueLimit);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Telemetry: otelEndPoint=[{otelEndPoint}], usePrometheus=[{usePrometheus}]")]
-    public static partial void InfoServiceSettingsTelemetry(this ILogger logger, string otelEndPoint, bool usePrometheus);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Telemetry: otelEndPoint=[{otelEndPoint}], prometheusUri=[{prometheusUri}]")]
+    public static partial void InfoServiceSettingsTelemetry(this ILogger logger, string otelEndPoint, string prometheusUri);
 }

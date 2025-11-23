@@ -26,8 +26,6 @@ using Template.GrpcServer.Host.Settings;
 
 public static class ApplicationExtensions
 {
-    private const string MetricsEndpointPath = "/metrics";
-
     //--------------------------------------------------------------------------------
     // System
     //--------------------------------------------------------------------------------
@@ -104,7 +102,6 @@ public static class ApplicationExtensions
     public static IHostApplicationBuilder ConfigureTelemetry(this IHostApplicationBuilder builder)
     {
         var useOtlpExporter = builder.Configuration.IsOtelExporterEnabled();
-        var usePrometheusExporter = builder.Configuration.IsPrometheusExporterEnabled();
 
         var telemetry = builder.Services.AddOpenTelemetry()
             .ConfigureResource(config =>
@@ -130,7 +127,7 @@ public static class ApplicationExtensions
         }
 
         // Metrics
-        if (useOtlpExporter || usePrometheusExporter)
+        if (useOtlpExporter)
         {
             telemetry
                 .WithMetrics(metrics =>
@@ -141,16 +138,15 @@ public static class ApplicationExtensions
                         .AddAspNetCoreInstrumentation()
                         .AddApplicationInstrumentation();
 
-                    if (useOtlpExporter)
-                    {
-                        metrics.AddOtlpExporter();
-                    }
+                    metrics.AddOtlpExporter();
 
-                    if (usePrometheusExporter)
+                    var prometheusSection = builder.Configuration.GetSection("Prometheus");
+                    var uri = prometheusSection.GetValue<string>("Uri");
+                    if (!String.IsNullOrEmpty(uri))
                     {
-                        metrics.AddPrometheusExporter(static config =>
+                        metrics.AddPrometheusHttpListener(config =>
                         {
-                            config.ScrapeEndpointPath = MetricsEndpointPath;
+                            config.UriPrefixes = [uri];
                         });
                     }
                 });
@@ -170,25 +166,7 @@ public static class ApplicationExtensions
                         .AddMiniDataProfilerInstrumentation()
                         .AddApplicationInstrumentation();
 
-                    if (builder.Environment.IsDevelopment())
-                    {
-                        tracing.SetSampler(new AlwaysOnSampler());
-                    }
-
                     tracing.AddOtlpExporter();
-
-                    if (!builder.Environment.IsProduction())
-                    {
-                        tracing
-                            .AddAspNetCoreInstrumentation(options =>
-                            {
-                                options.Filter = context =>
-                                {
-                                    var path = context.Request.Path;
-                                    return !path.StartsWithSegments(MetricsEndpointPath, StringComparison.OrdinalIgnoreCase);
-                                };
-                            });
-                    }
                 });
         }
 
@@ -240,12 +218,16 @@ public static class ApplicationExtensions
     public static void LogStartupInformation(this WebApplication app)
     {
         ThreadPool.GetMinThreads(out var workerThreads, out var completionPortThreads);
+
+        var prometheusSection = app.Configuration.GetSection("Prometheus");
+        var prometheusUri = prometheusSection.GetValue("Uri", string.Empty);
+
         app.Logger.InfoServiceStart();
         app.Logger.InfoServiceSettingsRuntime(RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription, RuntimeInformation.RuntimeIdentifier);
         app.Logger.InfoServiceSettingsEnvironment(typeof(Program).Assembly.GetName().Version, Environment.CurrentDirectory);
         app.Logger.InfoServiceSettingsGC(GCSettings.IsServerGC, GCSettings.LatencyMode, GCSettings.LargeObjectHeapCompactionMode);
         app.Logger.InfoServiceSettingsThreadPool(workerThreads, completionPortThreads);
-        app.Logger.InfoServiceSettingsTelemetry(app.Configuration.GetOtelExporterEndpoint(), app.Configuration.IsPrometheusExporterEnabled());
+        app.Logger.InfoServiceSettingsTelemetry(app.Configuration.GetOtelExporterEndpoint(), prometheusUri);
     }
 
     //--------------------------------------------------------------------------------
@@ -290,7 +272,4 @@ public static class ApplicationExtensions
 
     private static string GetOtelExporterEndpoint(this IConfiguration configuration) =>
         configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? string.Empty;
-
-    private static bool IsPrometheusExporterEnabled(this IConfiguration configuration) =>
-        Boolean.TryParse(configuration["OTEL_EXPORTER_PROMETHEUS"], out var value) && value;
 }
