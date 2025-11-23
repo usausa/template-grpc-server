@@ -24,8 +24,6 @@ builder.ConfigureLogging();
 // gRPC
 builder.ConfigureGrpc();
 
-// Health
-builder.ConfigureHealth();
 // Metrics
 builder.ConfigureTelemetry();
 

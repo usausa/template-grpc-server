@@ -2,7 +2,6 @@ namespace Template.GrpcServer.Host.Application;
 
 using System.Runtime.InteropServices;
 
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.FeatureManagement;
@@ -27,9 +26,6 @@ using Template.GrpcServer.Host.Settings;
 
 public static class ApplicationExtensions
 {
-    private const string HealthEndpointPath = "/health";
-    private const string AlivenessEndpointPath = "/alive";
-
     private const string MetricsEndpointPath = "/metrics";
 
     //--------------------------------------------------------------------------------
@@ -85,20 +81,18 @@ public static class ApplicationExtensions
 
     public static IHostApplicationBuilder ConfigureGrpc(this IHostApplicationBuilder builder)
     {
+        // gRPC
         builder.Services.AddGrpc();
 
-        return builder;
-    }
+        // gRPC Reflection
+        if (builder.Environment.IsDevelopment())
+        {
+            builder.Services.AddGrpcReflection();
+        }
 
-    //--------------------------------------------------------------------------------
-    // Health
-    //--------------------------------------------------------------------------------
-
-    public static IHostApplicationBuilder ConfigureHealth(this IHostApplicationBuilder builder)
-    {
-        builder.Services
-            .AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+        // gRPC Health
+        builder.Services.AddGrpcHealthChecks()
+            .AddCheck("Health", () => HealthCheckResult.Healthy());
 
         return builder;
     }
@@ -115,8 +109,10 @@ public static class ApplicationExtensions
         var telemetry = builder.Services.AddOpenTelemetry()
             .ConfigureResource(config =>
             {
-                // TODO ?
-                config.AddService("GrpcServer", serviceInstanceId: Environment.MachineName);
+                config.AddService(
+                    serviceName: builder.Environment.ApplicationName,
+                    serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString(),
+                    serviceInstanceId: Environment.MachineName);
             });
 
         // Log
@@ -189,9 +185,7 @@ public static class ApplicationExtensions
                                 options.Filter = context =>
                                 {
                                     var path = context.Request.Path;
-                                    return !path.StartsWithSegments(HealthEndpointPath, StringComparison.OrdinalIgnoreCase) &&
-                                           !path.StartsWithSegments(AlivenessEndpointPath, StringComparison.OrdinalIgnoreCase) &&
-                                           !path.StartsWithSegments(MetricsEndpointPath, StringComparison.OrdinalIgnoreCase);
+                                    return !path.StartsWithSegments(MetricsEndpointPath, StringComparison.OrdinalIgnoreCase);
                                 };
                             });
                     }
@@ -262,13 +256,11 @@ public static class ApplicationExtensions
     {
         // gRPC
         app.MapGrpcService<GreeterService>();
-
-        // Health
-        app.MapHealthChecks(HealthEndpointPath);
-        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
+        app.MapGrpcHealthChecksService();
+        if (app.Environment.IsDevelopment())
         {
-            Predicate = r => r.Tags.Contains("live")
-        });
+            app.MapGrpcReflectionService();
+        }
 
         // Root
         app.MapGet("/", () => "gRPC Server");
@@ -282,6 +274,9 @@ public static class ApplicationExtensions
 
     public static ValueTask InitializeApplicationAsync(this WebApplication app)
     {
+        // Prepare instrument
+        app.Services.GetRequiredService<ApplicationInstrument>();
+
         // TODO data initialize
         return ValueTask.CompletedTask;
     }
