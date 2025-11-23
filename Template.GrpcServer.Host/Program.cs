@@ -1,14 +1,33 @@
+using Serilog;
+
 using Template.GrpcServer.Host.Services;
+
+//--------------------------------------------------------------------------------
+// Configure builder
+//--------------------------------------------------------------------------------
+Directory.SetCurrentDirectory(AppContext.BaseDirectory);
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Log
+builder.Logging.ClearProviders();
+builder.Services.AddSerilog(option => option.ReadFrom.Configuration(builder.Configuration), writeToProviders: true);
+
+// gRPC
 builder.Services.AddGrpc();
 
+// Component
+// TODO
+
+//--------------------------------------------------------------------------------
+// Configure the HTTP request pipeline.
+//--------------------------------------------------------------------------------
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// gRPC
 app.MapGrpcService<GreeterService>();
-app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+
+// Default
+app.MapGet("/", () => "gRPC Server");
 
 app.Run();
