@@ -20,8 +20,8 @@ using Serilog;
 using Smart.Data;
 using Smart.Data.Accessor.Extensions.DependencyInjection;
 
+using Template.GrpcServer.Host.Api.Handlers;
 using Template.GrpcServer.Host.Application.Telemetry;
-using Template.GrpcServer.Host.Handlers;
 using Template.GrpcServer.Host.Settings;
 
 public static class ApplicationExtensions

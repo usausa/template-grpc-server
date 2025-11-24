@@ -1,6 +1,8 @@
-namespace Template.GrpcServer.Host.Handlers;
+namespace Template.GrpcServer.Host.Api.Handlers;
 
 using Grpc.Core;
+
+using Template.GrpcServer.Host;
 
 public sealed class GreeterHandler(ILogger<GreeterHandler> logger) : Greeter.GreeterBase
 {
