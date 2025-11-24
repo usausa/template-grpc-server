@@ -21,7 +21,7 @@ using Smart.Data;
 using Smart.Data.Accessor.Extensions.DependencyInjection;
 
 using Template.GrpcServer.Host.Application.Telemetry;
-using Template.GrpcServer.Host.EndPoints;
+using Template.GrpcServer.Host.Handlers;
 using Template.GrpcServer.Host.Settings;
 
 public static class ApplicationExtensions
@@ -237,7 +237,7 @@ public static class ApplicationExtensions
     public static WebApplication MapEndpoints(this WebApplication app)
     {
         // gRPC
-        app.MapGrpcService<GreeterApi>();
+        app.MapGrpcService<GreeterHandler>();
         app.MapGrpcHealthChecksService();
         if (app.Environment.IsDevelopment())
         {

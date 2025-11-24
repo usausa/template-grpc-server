@@ -1,8 +1,8 @@
-namespace Template.GrpcServer.Host.EndPoints;
+namespace Template.GrpcServer.Host.Handlers;
 
 using Grpc.Core;
 
-public sealed class GreeterApi(ILogger<GreeterApi> logger) : Greeter.GreeterBase
+public sealed class GreeterHandler(ILogger<GreeterHandler> logger) : Greeter.GreeterBase
 {
 #pragma warning disable CA1848
     public override Task<HelloReply> SayHello(HelloRequest request, ServerCallContext context)
