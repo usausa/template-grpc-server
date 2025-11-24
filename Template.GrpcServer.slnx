@@ -1,4 +1,11 @@
 <Solution>
+  <Folder Name="/Aspire/">
+    <Project Path="Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/Backend/">
+    <Project Path="Template.GrpcServer.Core/Template.GrpcServer.Core.csproj" />
+    <Project Path="Template.GrpcServer.Host/Template.GrpcServer.Host.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".gitattributes" />
@@ -10,7 +17,4 @@
     <File Path="README.md" />
     <File Path="Template.GrpcServer.sln.DotSettings" />
   </Folder>
-  <Project Path="Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" />
-  <Project Path="Template.GrpcServer.Core/Template.GrpcServer.Core.csproj" />
-  <Project Path="Template.GrpcServer.Host/Template.GrpcServer.Host.csproj" />
 </Solution>
