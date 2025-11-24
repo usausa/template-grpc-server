@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Hosting.WindowsServices;
 
-using Template.GrpcServer.Host.Application;
-
 //--------------------------------------------------------------------------------
 // Configure builder
 //--------------------------------------------------------------------------------

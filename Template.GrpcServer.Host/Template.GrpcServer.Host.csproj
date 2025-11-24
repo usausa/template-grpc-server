@@ -30,12 +30,15 @@
     <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Usa.Smart.Core" Version="2.5.0" />
-    <PackageReference Include="Usa.Smart.Data.Accessor" Version="2.10.0" />
     <PackageReference Include="Usa.Smart.Data.Accessor.Extensions.DependencyInjection" Version="2.10.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Protobuf Include="..\Protos\**\*.proto" LinkBase="Protos" GrpcServices="Server" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Template.GrpcServer.Core\Template.GrpcServer.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
