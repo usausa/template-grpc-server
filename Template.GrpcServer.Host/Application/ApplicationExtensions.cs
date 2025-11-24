@@ -103,6 +103,10 @@ public static class ApplicationExtensions
     {
         var useOtlpExporter = builder.Configuration.IsOtelExporterEnabled();
 
+        var prometheusSection = builder.Configuration.GetSection("Prometheus");
+        var prometheusUri = prometheusSection.GetValue<string>("Uri")!;
+        var usePrometheusExporter = !String.IsNullOrEmpty(prometheusUri);
+
         var telemetry = builder.Services.AddOpenTelemetry()
             .ConfigureResource(config =>
             {
@@ -127,7 +131,7 @@ public static class ApplicationExtensions
         }
 
         // Metrics
-        if (useOtlpExporter)
+        if (useOtlpExporter || usePrometheusExporter)
         {
             telemetry
                 .WithMetrics(metrics =>
@@ -138,15 +142,16 @@ public static class ApplicationExtensions
                         .AddAspNetCoreInstrumentation()
                         .AddApplicationInstrumentation();
 
-                    metrics.AddOtlpExporter();
+                    if (useOtlpExporter)
+                    {
+                        metrics.AddOtlpExporter();
+                    }
 
-                    var prometheusSection = builder.Configuration.GetSection("Prometheus");
-                    var uri = prometheusSection.GetValue<string>("Uri");
-                    if (!String.IsNullOrEmpty(uri))
+                    if (usePrometheusExporter)
                     {
                         metrics.AddPrometheusHttpListener(config =>
                         {
-                            config.UriPrefixes = [uri];
+                            config.UriPrefixes = [prometheusUri];
                         });
                     }
                 });
@@ -182,6 +187,10 @@ public static class ApplicationExtensions
 
     public static IHostApplicationBuilder ConfigureComponents(this IHostApplicationBuilder builder)
     {
+        // System
+        builder.Services.AddSingleton(TimeProvider.System);
+
+        // Data
         builder.Services.AddSingleton<IDbProvider>(static p =>
         {
             var configuration = p.GetRequiredService<IConfiguration>();
@@ -198,6 +207,8 @@ public static class ApplicationExtensions
 
             return new DelegateDbProvider(() => new SqliteConnection(connectionString));
         });
+
+        // TODO Dialect
 
         // TODO option
         builder.Services.AddDataAccessor();
