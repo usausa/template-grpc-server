@@ -1,5 +1,6 @@
 namespace Template.GrpcServer.Services;
 
-public sealed class DataAccessor
+public sealed class DataService
 {
+    // TODO
 }
