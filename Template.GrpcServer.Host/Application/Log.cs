@@ -19,9 +19,16 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "ThreadPool: workerThreads=[{workerThreads}], completionPortThreads=[{completionPortThreads}]")]
     public static partial void InfoServiceSettingsThreadPool(this ILogger logger, int workerThreads, int completionPortThreads);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "RateLimit: window=[{window}], permitLimit=[{permitLimit}], queueLimit=[{queueLimit}]")]
-    public static partial void InfoServiceSettingsRateLimit(this ILogger logger, int window, int permitLimit, int queueLimit);
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Telemetry: otelEndPoint=[{otelEndPoint}], prometheusUri=[{prometheusUri}]")]
     public static partial void InfoServiceSettingsTelemetry(this ILogger logger, string otelEndPoint, string prometheusUri);
+
+    // gRPC
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call end. method=[{method}], status=[{status}], elapsed=[{elapsed}]")]
+    public static partial void InfoGrpcCallEnd(this ILogger logger, string method, Grpc.Core.StatusCode status, long elapsed);
+
+    // Error
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception. method=[{method}]")]
+    public static partial void ErrorUnhandledException(this ILogger logger, Exception ex, string method);
 }

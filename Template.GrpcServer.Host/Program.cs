@@ -22,6 +22,9 @@ builder.ConfigureLogging();
 // gRPC
 builder.ConfigureGrpc();
 
+// Authentication
+builder.ConfigureAuthentication();
+
 // Metrics
 builder.ConfigureTelemetry();
 
@@ -35,6 +38,10 @@ var app = builder.Build();
 
 // Startup information
 app.LogStartupInformation();
+
+// Authentication
+app.UseAuthentication();
+app.UseAuthorization();
 
 // End point
 app.MapEndpoints();

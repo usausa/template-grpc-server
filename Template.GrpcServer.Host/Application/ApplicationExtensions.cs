@@ -1,10 +1,13 @@
 namespace Template.GrpcServer.Host.Application;
 
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.FeatureManagement;
+using Microsoft.IdentityModel.Tokens;
 
 using MiniDataProfiler;
 using MiniDataProfiler.Listener.Logging;
@@ -22,6 +25,8 @@ using Smart.Data.Accessor.Extensions.DependencyInjection;
 
 using Template.GrpcServer.Host.Api.Handlers;
 using Template.GrpcServer.Host.Application.Telemetry;
+using Template.GrpcServer.Host.Infrastructure.HealthChecks;
+using Template.GrpcServer.Host.Infrastructure.Interceptors;
 using Template.GrpcServer.Host.Settings;
 
 public static class ApplicationExtensions
@@ -80,7 +85,11 @@ public static class ApplicationExtensions
     public static IHostApplicationBuilder ConfigureGrpc(this IHostApplicationBuilder builder)
     {
         // gRPC
-        builder.Services.AddGrpc();
+        builder.Services.AddGrpc(static options =>
+        {
+            options.Interceptors.Add<ExceptionInterceptor>();
+            options.Interceptors.Add<LoggingInterceptor>();
+        });
 
         // gRPC Reflection
         if (builder.Environment.IsDevelopment())
@@ -90,7 +99,38 @@ public static class ApplicationExtensions
 
         // gRPC Health
         builder.Services.AddGrpcHealthChecks()
-            .AddCheck("Health", () => HealthCheckResult.Healthy());
+            .AddCheck("self", static () => HealthCheckResult.Healthy())
+            .AddCheck<DatabaseHealthCheck>("database");
+
+        return builder;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Authentication
+    //--------------------------------------------------------------------------------
+
+    public static IHostApplicationBuilder ConfigureAuthentication(this IHostApplicationBuilder builder)
+    {
+        var setting = builder.Configuration.GetSection("Auth").Get<AuthSetting>()!;
+
+        builder.Services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = setting.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = setting.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(setting.SecretKey)),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
+            });
+
+        builder.Services.AddAuthorization();
 
         return builder;
     }
@@ -207,17 +247,19 @@ public static class ApplicationExtensions
 
             return new DelegateDbProvider(() => new SqliteConnection(connectionString));
         });
-
-        // TODO Dialect
-
-        // TODO option
+        builder.Services.AddSingleton<IDialect>(new DelegateDialect(
+            static ex => ex is SqliteException { SqliteErrorCode: 19 } or SqliteException { SqliteExtendedErrorCode: 1555 or 2067 },
+            static x => Regex.Replace(x, "[%_]", "[$0]")));
         builder.Services.AddDataAccessor();
 
+        // Service
+        builder.Services.AddSingleton<DataService>();
+
         // Setting
-        builder.Services.Configure<ProfilerSetting>(builder.Configuration.GetSection("Profiler"));
-        builder.Services.AddSingleton<ProfilerSetting>(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
-        builder.Services.Configure<ServerSetting>(builder.Configuration.GetSection("Server"));
-        builder.Services.AddSingleton<ServerSetting>(static p => p.GetRequiredService<IOptions<ServerSetting>>().Value);
+        builder.Services.AddOptions<ProfilerSetting>().BindConfiguration("Profiler").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
+        builder.Services.AddOptions<AuthSetting>().BindConfiguration("Auth").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<AuthSetting>>().Value);
 
         return builder;
     }
@@ -248,7 +290,7 @@ public static class ApplicationExtensions
     public static WebApplication MapEndpoints(this WebApplication app)
     {
         // gRPC
-        app.MapGrpcService<GreeterHandler>();
+        app.MapGrpcService<DataHandler>().RequireAuthorization();
         app.MapGrpcHealthChecksService();
         if (app.Environment.IsDevelopment())
         {
@@ -256,7 +298,7 @@ public static class ApplicationExtensions
         }
 
         // Root
-        app.MapGet("/", () => "gRPC Server");
+        app.MapGet("/", static () => "gRPC Server");
 
         return app;
     }
@@ -270,7 +312,9 @@ public static class ApplicationExtensions
         // Prepare instrument
         app.Services.GetRequiredService<ApplicationInstrument>();
 
-        // TODO data initialize
+        // Prepare database
+        app.Services.GetRequiredService<DataService>().CreateTable();
+
         return ValueTask.CompletedTask;
     }
 
