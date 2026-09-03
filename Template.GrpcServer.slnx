@@ -1,6 +1,6 @@
 <Solution>
   <Folder Name="/Aspire/">
-    <Project Path="Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" />
+    <Project Path="Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" DefaultStartup="true" />
   </Folder>
   <Folder Name="/Backend/">
     <Project Path="Template.GrpcServer.Core/Template.GrpcServer.Core.csproj" />
