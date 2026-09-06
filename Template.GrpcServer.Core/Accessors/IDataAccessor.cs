@@ -9,7 +9,7 @@ public interface IDataAccessor
     void Create();
 
     [Query]
-    ValueTask<List<DataEntity>> QueryListAsync(string? name);
+    ValueTask<List<DataEntity>> QueryListAsync(string? name, CancellationToken cancellationToken);
 
     [QueryFirstOrDefault]
     ValueTask<DataEntity?> QueryAsync(long id);

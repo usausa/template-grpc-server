@@ -53,7 +53,7 @@ public sealed class DataHandler : Data.DataBase
 
     public override async Task ListData(ListDataRequest request, IServerStreamWriter<DataItem> responseStream, ServerCallContext context)
     {
-        var list = await dataService.QueryListAsync(String.IsNullOrEmpty(request.Name) ? null : request.Name);
+        var list = await dataService.QueryListAsync(String.IsNullOrEmpty(request.Name) ? null : request.Name, context.CancellationToken);
         foreach (var entity in list)
         {
             await responseStream.WriteAsync(MapToItem(entity), context.CancellationToken);

@@ -24,8 +24,8 @@ public sealed class DataService
     public void CreateTable() =>
         dataAccessor.Create();
 
-    public ValueTask<List<DataEntity>> QueryListAsync(string? name) =>
-        dataAccessor.QueryListAsync(name);
+    public ValueTask<List<DataEntity>> QueryListAsync(string? name, CancellationToken cancellationToken = default) =>
+        dataAccessor.QueryListAsync(name, cancellationToken);
 
     public ValueTask<DataEntity?> QueryAsync(long id) =>
         dataAccessor.QueryAsync(id);
