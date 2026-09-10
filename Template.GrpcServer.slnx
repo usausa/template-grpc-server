@@ -1,10 +1,10 @@
 <Solution>
   <Folder Name="/Aspire/">
-    <Project Path="Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" DefaultStartup="true" />
+    <Project Path="src/Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj" DefaultStartup="true" />
   </Folder>
   <Folder Name="/Backend/">
-    <Project Path="Template.GrpcServer.Core/Template.GrpcServer.Core.csproj" />
-    <Project Path="Template.GrpcServer.Host/Template.GrpcServer.Host.csproj" />
+    <Project Path="src/Template.GrpcServer.Core/Template.GrpcServer.Core.csproj" />
+    <Project Path="src/Template.GrpcServer.Host/Template.GrpcServer.Host.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
