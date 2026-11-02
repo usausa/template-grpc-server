@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <CodeAnalysisRuleSet>..\..\Analyzers.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BunnyTail.DependencyInjection" Version="0.10.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.84.0" />
+    <PackageReference Include="Grpc.StatusProto" Version="2.84.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.84.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
+    <PackageReference Include="Usa.Smart.CommandLine.Hosting" Version="2.20.0" />
+    <PackageReference Include="Usa.Smart.Core" Version="2.20.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- protoはサーバー側の定義を共有する -->
+    <Protobuf Include="..\Template.GrpcServer.Host\Handlers\Protos\data.proto" GrpcServices="Client" Link="Protos\data.proto" />
+    <Protobuf Include="..\Template.GrpcServer.Host\Handlers\Protos\storage.proto" GrpcServices="Client" Link="Protos\storage.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>True</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="appsettings.*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <DependentUpon>appsettings.json</DependentUpon>
+      <ExcludeFromSingleFile>True</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+
+</Project>

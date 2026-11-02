@@ -28,9 +28,10 @@ global using Smart.Collections.Generic;
 global using Smart.Data;
 global using Smart.Data.Accessor;
 global using Smart.Data.Accessor.Attributes;
-global using Smart.Data.Accessor.Builders;
 global using Smart.IO;
 global using Smart.Linq;
 global using Smart.Text;
 
 global using Template.GrpcServer.Models;
+global using Template.GrpcServer.Models.Entity;
+global using Template.GrpcServer.Models.Parameters;

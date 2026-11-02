@@ -27,6 +27,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call end. method=[{method}], status=[{status}], elapsed=[{elapsed}]")]
     public static partial void InfoGrpcCallEnd(this ILogger logger, string method, Grpc.Core.StatusCode status, long elapsed);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call cancelled. method=[{method}]")]
+    public static partial void InfoGrpcCallCancelled(this ILogger logger, string method);
+
     // Error
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception. method=[{method}]")]

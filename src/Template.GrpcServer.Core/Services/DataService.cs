@@ -1,55 +1,50 @@
 namespace Template.GrpcServer.Services;
 
 using Template.GrpcServer.Accessors;
-using Template.GrpcServer.Models;
 
 public sealed class DataService
 {
     private readonly IDialect dialect;
 
-    private readonly IDataAccessor dataAccessor;
+    private readonly DataAccessor dataAccessor;
 
-    private readonly TimeProvider timeProvider;
+    private readonly ServiceContextProvider contextProvider;
 
     public DataService(
         IDialect dialect,
-        IAccessorResolver<IDataAccessor> dataAccessor,
-        TimeProvider timeProvider)
+        DataAccessor dataAccessor,
+        ServiceContextProvider contextProvider)
     {
         this.dialect = dialect;
-        this.dataAccessor = dataAccessor.Accessor;
-        this.timeProvider = timeProvider;
+        this.dataAccessor = dataAccessor;
+        this.contextProvider = contextProvider;
     }
 
-    public void CreateTable() =>
-        dataAccessor.Create();
-
-    public ValueTask<List<DataEntity>> QueryListAsync(string? name, CancellationToken cancellationToken = default) =>
-        dataAccessor.QueryListAsync(name, cancellationToken);
+    public IAsyncEnumerable<DataEntity> QueryListAsync(string? name, DataSort sort, bool desc, CancellationToken cancellationToken = default) =>
+        dataAccessor.QueryListAsync(dialect.Match(name), sort, desc, cancellationToken);
 
     public ValueTask<DataEntity?> QueryAsync(long id) =>
         dataAccessor.QueryAsync(id);
 
-    public async ValueTask<long?> InsertAsync(string name, int value)
+    public async ValueTask<DataWriteStatus> InsertAsync(DataEntity entity)
     {
+        var context = contextProvider.Current;
+
         try
         {
-            return await dataAccessor.InsertAsync(name, value, timeProvider.GetUtcNow().UtcDateTime).ConfigureAwait(false);
+            entity.CreatedAt = context.Now.UtcDateTime;
+            entity.Id = await dataAccessor.InsertAsync(entity.Name, entity.Value, entity.CreatedAt);
+            return DataWriteStatus.Success;
         }
-        catch (DbException ex)
+        catch (DbException ex) when (dialect.IsDuplicate(ex))
         {
-            if (dialect.IsDuplicate(ex))
-            {
-                return null;
-            }
-
-            throw;
+            return DataWriteStatus.Duplicate;
         }
     }
 
-    public async ValueTask<bool> DeleteAsync(long id)
+    public async ValueTask<DataWriteStatus> DeleteAsync(long id)
     {
-        var rows = await dataAccessor.DeleteAsync(id).ConfigureAwait(false);
-        return rows > 0;
+        var rows = await dataAccessor.DeleteAsync(id);
+        return rows > 0 ? DataWriteStatus.Success : DataWriteStatus.NotFound;
     }
 }

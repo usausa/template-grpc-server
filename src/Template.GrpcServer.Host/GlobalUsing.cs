@@ -39,5 +39,7 @@ global using Smart.Text;
 
 global using Template.GrpcServer;
 global using Template.GrpcServer.Models;
+global using Template.GrpcServer.Models.Entity;
+global using Template.GrpcServer.Models.Parameters;
 global using Template.GrpcServer.Services;
 global using Template.GrpcServer.Host.Application;

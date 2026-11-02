@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,6 +7,11 @@
     <AspireUseCliBundle>true</AspireUseCliBundle>
     <UserSecretsId>0b31e68c-5218-459c-9c06-cabf182bca59</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Transitive pin: GHSA-qhrr-8q5h-9q3h -->
+    <PackageReference Include="MessagePack" Version="2.5.307" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Template.GrpcServer.Host\Template.GrpcServer.Host.csproj" />

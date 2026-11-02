@@ -21,16 +21,22 @@ using OpenTelemetry.Trace;
 using Serilog;
 
 using Smart.Data;
-using Smart.Data.Accessor.Extensions.DependencyInjection;
 
-using Template.GrpcServer.Host.Api.Handlers;
+using Template.GrpcServer.Accessors;
+using Template.GrpcServer.Host.Application.Context;
+using Template.GrpcServer.Host.Application.ExceptionHandling;
+using Template.GrpcServer.Host.Application.HealthChecks;
 using Template.GrpcServer.Host.Application.Telemetry;
-using Template.GrpcServer.Host.Infrastructure.HealthChecks;
-using Template.GrpcServer.Host.Infrastructure.Interceptors;
+using Template.GrpcServer.Host.Handlers;
 using Template.GrpcServer.Host.Settings;
+using Template.GrpcServer.Host.Subscriptions;
+using Template.GrpcServer.Host.Workers;
+using Template.GrpcServer.Infrastructure.Storage;
 
 public static class ApplicationExtensions
 {
+    private const string SchemaPath = "Assets/Data/Schema.sql";
+
     //--------------------------------------------------------------------------------
     // System
     //--------------------------------------------------------------------------------
@@ -84,11 +90,22 @@ public static class ApplicationExtensions
 
     public static IHostApplicationBuilder ConfigureGrpc(this IHostApplicationBuilder builder)
     {
+        var setting = builder.Configuration.GetSection("Grpc").Get<GrpcSetting>()!;
+
         // gRPC
-        builder.Services.AddGrpc(static options =>
+        builder.Services.AddGrpc(options =>
         {
-            options.Interceptors.Add<ExceptionInterceptor>();
+            // Loggingを外側にし、Exceptionが変換した後の状態を記録する
             options.Interceptors.Add<LoggingInterceptor>();
+            options.Interceptors.Add<ExceptionInterceptor>();
+            options.Interceptors.Add<ServiceContextInterceptor>();
+
+            // 応答の圧縮。クライアントがgzipを受け付けるときだけ効く。圧縮済みのバイナリを流すメソッドはcontext.WriteOptionsのWriteFlags.NoCompressで個別に外す
+            if (setting.Compression.Enable)
+            {
+                options.ResponseCompressionAlgorithm = "gzip";
+                options.ResponseCompressionLevel = setting.Compression.Level;
+            }
         });
 
         // gRPC Reflection
@@ -251,17 +268,40 @@ public static class ApplicationExtensions
         });
         builder.Services.AddSingleton<IDialect>(new DelegateDialect(
             static ex => ex is SqliteException { SqliteErrorCode: 19 } or SqliteException { SqliteExtendedErrorCode: 1555 or 2067 },
-            static x => Regex.Replace(x, "[%_]", "[$0]")));
-        builder.Services.AddDataAccessor();
+            static x => Regex.Replace(x, @"[%_\\]", @"\$0")));
+        builder.Services.AddDataAccessors(typeof(DataAccessor).Assembly);
+
+        // Storage
+        builder.Services.AddOptions<FileStorageOption>().BindConfiguration("Storage").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<FileStorageOption>>().Value);
+        builder.Services.AddSingleton<IStorage, FileStorage>();
+        builder.Services.AddOptions<StorageHandlerOption>().BindConfiguration("FileTransfer").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<StorageHandlerOption>>().Value);
 
         // Service
+        builder.Services.AddSingleton<ApplicationServiceContextProvider>();
+        builder.Services.AddSingleton<ServiceContextProvider>(static p => p.GetRequiredService<ApplicationServiceContextProvider>());
+        builder.Services.AddSingleton<DatabaseService>();
         builder.Services.AddSingleton<DataService>();
 
+        // Notify
+        builder.Services.AddSingleton<BroadcastSubscription>();
+        builder.Services.AddOptions<BroadcastSubscriptionOption>().BindConfiguration("Broadcast").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<BroadcastSubscriptionOption>>().Value);
+        builder.Services.AddOptions<TickWorkerOption>().BindConfiguration("Tick").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<TickWorkerOption>>().Value);
+        if (builder.Configuration.GetSection("Tick").Get<TickWorkerOption>()!.Enable)
+        {
+            builder.Services.AddHostedService<TickWorker>();
+        }
+
         // Setting
-        builder.Services.AddOptions<ProfilerSetting>().BindConfiguration("Profiler").ValidateDataAnnotations().ValidateOnStart();
-        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
         builder.Services.AddOptions<AuthSetting>().BindConfiguration("Auth").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<AuthSetting>>().Value);
+        builder.Services.AddOptions<GrpcSetting>().BindConfiguration("Grpc").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<GrpcSetting>>().Value);
+        builder.Services.AddOptions<ProfilerSetting>().BindConfiguration("Profiler").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
 
         return builder;
     }
@@ -293,6 +333,7 @@ public static class ApplicationExtensions
     {
         // gRPC
         app.MapGrpcService<DataHandler>().RequireAuthorization();
+        app.MapGrpcService<StorageHandler>().RequireAuthorization();
         app.MapGrpcHealthChecksService();
         if (app.Environment.IsDevelopment())
         {
@@ -309,15 +350,16 @@ public static class ApplicationExtensions
     // Startup
     //--------------------------------------------------------------------------------
 
-    public static ValueTask InitializeApplicationAsync(this WebApplication app)
+    public static async ValueTask InitializeApplicationAsync(this WebApplication app)
     {
         // Prepare instrument
         app.Services.GetRequiredService<ApplicationInstrument>();
 
         // Prepare database
-        app.Services.GetRequiredService<DataService>().CreateTable();
+        await app.Services.GetRequiredService<DatabaseService>().InitializeAsync(SchemaPath, CancellationToken.None);
 
-        return ValueTask.CompletedTask;
+        // Prepare storage
+        Directory.CreateDirectory(app.Services.GetRequiredService<FileStorageOption>().Root);
     }
 
     //--------------------------------------------------------------------------------

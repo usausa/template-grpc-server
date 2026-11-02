@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Template.GrpcServer.Host";
+
+package data;
+
+// The data service definition.
+service Data {
+  // Unary
+  rpc GetData (GetDataRequest) returns (DataItem);
+  rpc SetData (SetDataRequest) returns (SetDataReply);
+  rpc DeleteData (DeleteDataRequest) returns (DeleteDataReply);
+  // Server streaming
+  rpc ListData (ListDataRequest) returns (stream DataItem);
+  // Client streaming
+  rpc UploadData (stream SetDataRequest) returns (UploadDataReply);
+  // Bidirectional streaming
+  rpc Chat (stream ChatMessage) returns (stream ChatMessage);
+  // Bidirectional streaming (server driven)
+  rpc Notify (stream ClientMessage) returns (stream ServerMessage);
+}
+
+message GetDataRequest {
+  int64 id = 1;
+}
+
+message DataItem {
+  int64 id = 1;
+  string name = 2;
+  int32 value = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message SetDataRequest {
+  string name = 1;
+  int32 value = 2;
+}
+
+message SetDataReply {
+  int64 id = 1;
+}
+
+message DeleteDataRequest {
+  int64 id = 1;
+}
+
+message DeleteDataReply {
+  bool deleted = 1;
+}
+
+message ListDataRequest {
+  string name = 1;
+  // Sort column (Id / Name / Value / CreatedAt). Empty means Id.
+  string sort = 2;
+  bool desc = 3;
+}
+
+message UploadDataReply {
+  // Number of inserted items.
+  int32 count = 1;
+  // Items that were not inserted (validation or duplicate), identified by their position in the stream.
+  repeated UploadFailure failures = 2;
+}
+
+message UploadFailure {
+  int32 index = 1;
+  string name = 2;
+  string reason = 3;
+}
+
+message ChatMessage {
+  string name = 1;
+  string message = 2;
+}
+
+message ClientMessage {
+  oneof payload {
+    JoinRequest join = 1;
+    BroadcastRequest broadcast = 2;
+  }
+}
+
+message JoinRequest {
+  string name = 1;
+}
+
+message BroadcastRequest {
+  string message = 1;
+}
+
+message ServerMessage {
+  oneof payload {
+    Tick tick = 1;
+    Broadcast broadcast = 2;
+  }
+}
+
+message Tick {
+  google.protobuf.Timestamp time = 1;
+  int32 subscribers = 2;
+}
+
+message Broadcast {
+  string name = 1;
+  string message = 2;
+}
