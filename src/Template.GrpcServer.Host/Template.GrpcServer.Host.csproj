@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <Protobuf Include="Handlers\Protos\**\*.proto" GrpcServices="Both" />
+    <Protobuf Update="Handlers\Protos\Internal\**\*.proto" GrpcServices="None" />
   </ItemGroup>
 
   <ItemGroup>

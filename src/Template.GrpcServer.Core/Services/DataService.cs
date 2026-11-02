@@ -20,8 +20,25 @@ public sealed class DataService
         this.contextProvider = contextProvider;
     }
 
-    public IAsyncEnumerable<DataEntity> QueryListAsync(string? name, DataSort sort, bool desc, CancellationToken cancellationToken = default) =>
-        dataAccessor.QueryListAsync(dialect.Match(name), sort, desc, cancellationToken);
+    public IAsyncEnumerable<DataEntity> QueryListAsync(DataFilter filter, DataSort sort, bool desc, CancellationToken cancellationToken = default) =>
+        dataAccessor.QueryListAsync(dialect.Match(filter.Name), filter.CreatedFrom, filter.CreatedTo, sort, desc, cancellationToken);
+
+    public async ValueTask<CursorPage<DataEntity>> QueryPageAsync(DataFilter filter, DataSort sort, bool desc, DataCursor? after, int size, CancellationToken cancellationToken = default)
+    {
+        var pattern = dialect.Match(filter.Name);
+        var total = await dataAccessor.CountAsync(pattern, filter.CreatedFrom, filter.CreatedTo, cancellationToken);
+        var items = await dataAccessor.QueryPageAsync(pattern, filter.CreatedFrom, filter.CreatedTo, sort, desc, after is null ? null : GetSortKey(after, sort), after?.Id, size + 1, cancellationToken);
+        var hasNext = items.Count > size;
+        if (hasNext)
+        {
+            items.RemoveAt(size);
+        }
+
+        return new CursorPage<DataEntity>(total, hasNext, items);
+    }
+
+    public ValueTask<List<DataEntity>> QueryByIdsAsync(IEnumerable<long> ids, CancellationToken cancellationToken = default) =>
+        dataAccessor.QueryByIdsAsync(ids, cancellationToken);
 
     public ValueTask<DataEntity?> QueryAsync(long id, CancellationToken cancellationToken = default) =>
         dataAccessor.QueryAsync(id, cancellationToken);
@@ -47,4 +64,12 @@ public sealed class DataService
         var rows = await dataAccessor.DeleteAsync(id, cancellationToken);
         return rows > 0 ? DataWriteStatus.Success : DataWriteStatus.NotFound;
     }
+
+    private static object GetSortKey(DataCursor cursor, DataSort sort) => sort switch
+    {
+        DataSort.Name => cursor.Name,
+        DataSort.Value => cursor.Value,
+        DataSort.CreatedAt => cursor.CreatedAt,
+        _ => cursor.Id
+    };
 }

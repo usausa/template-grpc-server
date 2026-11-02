@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Template.GrpcServer.Host.Handlers";
+
+package data.v1.internal;
+
+// Page token of ListData. Serialized and base64url encoded. Not a part of the API.
+message DataPageToken {
+  // Conditions of the first request.
+  string name = 1;
+  string sort = 2;
+  bool desc = 3;
+  google.protobuf.Timestamp created_from = 4;
+  google.protobuf.Timestamp created_to = 5;
+  // Last item of the previous page.
+  int64 last_id = 6;
+  string last_name = 7;
+  int32 last_value = 8;
+  google.protobuf.Timestamp last_created_at = 9;
+}

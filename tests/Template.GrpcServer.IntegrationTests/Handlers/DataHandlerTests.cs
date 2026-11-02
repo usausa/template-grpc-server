@@ -1,5 +1,8 @@
 namespace Template.GrpcServer.Handlers;
 
+using System.Globalization;
+
+using Google.Protobuf.WellKnownTypes;
 using Google.Rpc;
 
 using Grpc.Core;
@@ -112,18 +115,172 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
     }
 
     [Fact]
-    public async Task ListDataReturnsItemsSortedByName()
+    public async Task BatchGetDataReturnsItemsInRequestOrder()
     {
         // Arrange
         using var channel = factory.CreateChannel();
         var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
-        var prefix = $"list-{Guid.NewGuid():N}";
+        var prefix = $"batch-{Guid.NewGuid():N}";
+        var first = await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-a", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+        var second = await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-b", Value = 2 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var reply = await client.BatchGetDataAsync(new BatchGetDataRequest { Ids = { second.Id, first.Id, second.Id } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Collection(
+            reply.Items,
+            x => Assert.Equal(second.Id, x.Id),
+            x => Assert.Equal(first.Id, x.Id),
+            x => Assert.Equal(second.Id, x.Id));
+    }
+
+    [Fact]
+    public async Task BatchGetDataWithMissingIdReturnsNotFound()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var item = await client.SetDataAsync(new SetDataRequest { Name = $"batch-{Guid.NewGuid():N}", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.BatchGetDataAsync(new BatchGetDataRequest { Ids = { item.Id, Int64.MaxValue } }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.NotFound, exception.StatusCode);
+        var resources = exception.GetRpcStatus()?.Details.Where(static x => x.Is(ResourceInfo.Descriptor)).Select(static x => x.Unpack<ResourceInfo>()).ToList();
+        Assert.NotNull(resources);
+        var resource = Assert.Single(resources);
+        Assert.Equal("data", resource.ResourceType);
+        Assert.Equal(Int64.MaxValue.ToString(CultureInfo.InvariantCulture), resource.ResourceName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    public async Task BatchGetDataWithInvalidCountReturnsInvalidArgument(int count)
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var request = new BatchGetDataRequest();
+        request.Ids.AddRange(Enumerable.Range(1, count).Select(static x => (long)x));
+
+        // Act
+        using var call = client.BatchGetDataAsync(request, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListDataPagesThroughItemsWithSameValue()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertItemsAsync(client, "page", 3, 1, 2, 1, 3);
+
+        // Act
+        var (names, pages, total) = await ReadAllPagesAsync(client, new ListDataRequest { Name = prefix, Sort = "Value", PageSize = 2 });
+
+        // Assert
+        string[] expected = [$"{prefix}-1", $"{prefix}-3", $"{prefix}-2", $"{prefix}-0", $"{prefix}-4"];
+        Assert.Equal(expected, names);
+        Assert.Equal(3, pages);
+        Assert.Equal(5, total);
+    }
+
+    [Fact]
+    public async Task ListDataPagesInDescendingOrder()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertItemsAsync(client, "desc", 1, 1, 1, 1, 1);
+
+        // Act
+        var (names, pages, total) = await ReadAllPagesAsync(client, new ListDataRequest { Name = prefix, Sort = "Name", Desc = true, PageSize = 2 });
+
+        // Assert
+        string[] expected = [$"{prefix}-4", $"{prefix}-3", $"{prefix}-2", $"{prefix}-1", $"{prefix}-0"];
+        Assert.Equal(expected, names);
+        Assert.Equal(3, pages);
+        Assert.Equal(5, total);
+    }
+
+    [Fact]
+    public async Task ListDataWithChangedConditionRejectsToken()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertItemsAsync(client, "token", 1, 2);
+        var first = await client.ListDataAsync(new ListDataRequest { Name = prefix, Sort = "Name", PageSize = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.ListDataAsync(new ListDataRequest { Name = prefix, Sort = "Value", PageSize = 1, PageToken = first.NextPageToken }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.False(String.IsNullOrEmpty(first.NextPageToken));
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal("page_token", Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
+    }
+
+    [Theory]
+    [InlineData(0, "broken!", "page_token")]
+    [InlineData(-1, "", "page_size")]
+    public async Task ListDataWithInvalidRequestReturnsInvalidArgument(int pageSize, string pageToken, string field)
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+
+        // Act
+        using var call = client.ListDataAsync(new ListDataRequest { PageSize = pageSize, PageToken = pageToken }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal(field, Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
+    }
+
+    [Fact]
+    public async Task ListDataFiltersByCreatedAt()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertItemsAsync(client, "created", 1);
+        var now = DateTime.UtcNow;
+
+        // Act
+        var inRange = await client.ListDataAsync(new ListDataRequest { Name = prefix, CreatedFrom = Timestamp.FromDateTime(now.AddMinutes(-1)), CreatedTo = Timestamp.FromDateTime(now.AddMinutes(1)) }, cancellationToken: TestContext.Current.CancellationToken);
+        var outOfRange = await client.ListDataAsync(new ListDataRequest { Name = prefix, CreatedTo = Timestamp.FromDateTime(now.AddMinutes(-1)) }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Single(inRange.Items);
+        Assert.Equal(1, inRange.TotalSize);
+        Assert.Empty(outOfRange.Items);
+        Assert.Equal(0, outOfRange.TotalSize);
+    }
+
+    [Fact]
+    public async Task ExportDataReturnsItemsSortedByName()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = $"export-{Guid.NewGuid():N}";
         await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-b", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
         await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-a", Value = 2 }, cancellationToken: TestContext.Current.CancellationToken);
         await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-c", Value = 3 }, cancellationToken: TestContext.Current.CancellationToken);
 
         // Act
-        using var call = client.ListData(new ListDataRequest { Name = prefix, Sort = "Name", Desc = true }, cancellationToken: TestContext.Current.CancellationToken);
+        using var call = client.ExportData(new ExportDataRequest { Name = prefix, Sort = "Name", Desc = true }, cancellationToken: TestContext.Current.CancellationToken);
         var names = new List<string>();
         await foreach (var item in call.ResponseStream.ReadAllAsync(TestContext.Current.CancellationToken))
         {
@@ -216,5 +373,33 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
     {
         Assert.True(await stream.MoveNext(cancellationToken));
         return stream.Current;
+    }
+
+    private static async Task<string> InsertItemsAsync(Data.DataClient client, string label, params int[] values)
+    {
+        var prefix = $"{label}-{Guid.NewGuid():N}";
+        for (var i = 0; i < values.Length; i++)
+        {
+            await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-{i}", Value = values[i] }, cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        return prefix;
+    }
+
+    private static async Task<(List<string> Names, int Pages, int Total)> ReadAllPagesAsync(Data.DataClient client, ListDataRequest request)
+    {
+        var names = new List<string>();
+        var pages = 0;
+        ListDataReply reply;
+        do
+        {
+            reply = await client.ListDataAsync(request, cancellationToken: TestContext.Current.CancellationToken);
+            names.AddRange(reply.Items.Select(static x => x.Name));
+            request.PageToken = reply.NextPageToken;
+            pages++;
+        }
+        while (!String.IsNullOrEmpty(reply.NextPageToken));
+
+        return (names, pages, reply.TotalSize);
     }
 }

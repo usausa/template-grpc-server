@@ -11,9 +11,11 @@ public static partial class CommandExtensions
     public static void AddCommands(this ICommandBuilder commands)
     {
         commands.AddCommand<GetCommand>();
+        commands.AddCommand<BatchGetCommand>();
         commands.AddCommand<SetCommand>();
         commands.AddCommand<DeleteCommand>();
         commands.AddCommand<ListCommand>();
+        commands.AddCommand<ExportCommand>();
         commands.AddCommand<UploadCommand>();
         commands.AddCommand<ChatCommand>();
         commands.AddCommand<NotifyCommand>();

@@ -2,12 +2,16 @@
 
 ## 動作確認用クライアント(Template.GrpcServer.TestClient)
 
-サーバーの全 RPC を一巡できるコンソール。`Grpc.Net.ClientFactory`(`AddGrpcClient` + `ConfigureChannel`)でリトライポリシー(`Unavailable` を指数バックオフで最大 5 回)と、クライアント側インターセプター(JWT 付与 / 呼出ログ)を持つ。Unary(`get` / `set` / `delete`)には期限を付ける(リトライも含めた呼出全体の上限)。JWT はサーバーと同じ鍵で自前発行する(動作確認用。実運用のクライアントは認証サーバーから取得する)。
+サーバーの全 RPC を一巡できるコンソール。`Grpc.Net.ClientFactory`(`AddGrpcClient` + `ConfigureChannel`)でリトライポリシー(`Unavailable` を指数バックオフで最大 5 回)と、クライアント側インターセプター(JWT 付与 / 呼出ログ)を持つ。Unary(`get` / `batch-get` / `set` / `delete` / `list`)には期限を付ける(リトライも含めた呼出全体の上限)。JWT はサーバーと同じ鍵で自前発行する(動作確認用。実運用のクライアントは認証サーバーから取得する)。
 
 ```bash
 dotnet run --project src/Template.GrpcServer.TestClient -- set --name item-1 --value 10
 dotnet run --project src/Template.GrpcServer.TestClient -- get --id 1
-dotnet run --project src/Template.GrpcServer.TestClient -- list --name item --sort Name --desc
+dotnet run --project src/Template.GrpcServer.TestClient -- batch-get --ids 1,2
+dotnet run --project src/Template.GrpcServer.TestClient -- list --name item --sort Name --desc --size 2
+dotnet run --project src/Template.GrpcServer.TestClient -- list --name item --sort Name --desc --size 2 --token <next>
+dotnet run --project src/Template.GrpcServer.TestClient -- list --from 2026-01-01T00:00:00Z --all
+dotnet run --project src/Template.GrpcServer.TestClient -- export --name item --sort Name --desc
 dotnet run --project src/Template.GrpcServer.TestClient -- delete --id 1
 echo "a 1" | dotnet run --project src/Template.GrpcServer.TestClient -- upload
 dotnet run --project src/Template.GrpcServer.TestClient -- chat --name me
@@ -20,7 +24,9 @@ dotnet run --project src/Template.GrpcServer.TestClient -- token
 | コマンド | RPC | 内容 |
 |---|---|---|
 | `get` / `set` / `delete` | Unary | 検証エラー(`BadRequest` のフィールド違反)と重複(`ErrorInfo`)は `google.rpc.Status` の詳細と `trace-id` を表示する |
-| `list` | Server streaming | 名前の部分一致。`--sort`(`Id` / `Name` / `Value` / `CreatedAt`。既定は `Id`)と `--desc` で並べ替える |
+| `batch-get` | Unary | `--ids` の順に返す(重複はそのまま)。無い ID が 1 件でもあれば `NotFound` で、無い ID を表示する |
+| `list` | Unary(ページング) | 名前の部分一致・作成日時の範囲(`--from` 以上 `--to` 未満)・並べ替え(`--sort` は `Id` / `Name` / `Value` / `CreatedAt`。既定は `Id`。`--desc`)で `--size` 件ずつ(既定 20・上限 100)。続きは表示された `next` を `--token` に渡す。`--all` で最後までたどる |
+| `export` | Server streaming | `list` と同じ条件で、全件を 1 件ずつ受け取る |
 | `upload` | Client streaming | 標準入力の各行(`name value`)を送る。登録できなかった行は位置と理由付きで返り(`失敗しても止めない`)、`NG [index]` で表示する |
 | `chat` | Bidirectional | 標準入力の各行を送り、エコーを表示する。EOF で終了 |
 | `notify` | Bidirectional(サーバー主体) | 参加して配信(`Tick` / `Broadcast`)を表示し、標準入力の各行を全員へ配信する。EOF で終了 |
@@ -51,4 +57,4 @@ dotnet run --project tests/Template.GrpcServer.IntegrationTests
 ```
 
 - xunit.v3 + Microsoft Testing Platform(テストのプロジェクトは実行ファイル。`dotnet run` で実行する)
-- `IntegrationTests` = `WebApplicationFactory` のテストサーバー(テストクラスごとに一時フォルダーの DB・ストレージ)へ `GrpcChannel` でつなぎ、4 形態の RPC・エラーの詳細・認証・期限切れ・要求メトリクス・ファイル転送を確かめる
+- `IntegrationTests` = `WebApplicationFactory` のテストサーバー(テストクラスごとに一時フォルダーの DB・ストレージ)へ `GrpcChannel` でつなぎ、4 形態の RPC・ページングと一括取得・エラーの詳細・認証・期限切れ・要求メトリクス・ファイル転送を確かめる

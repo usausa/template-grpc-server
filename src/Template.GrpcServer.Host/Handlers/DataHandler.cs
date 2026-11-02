@@ -1,5 +1,8 @@
 namespace Template.GrpcServer.Host.Handlers;
 
+using System.Buffers.Text;
+
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
 using Grpc.Core;
@@ -8,6 +11,12 @@ using Template.GrpcServer.Host.Subscriptions;
 
 public sealed class DataHandler : Data.DataBase
 {
+    private const int DefaultPageSize = 20;
+
+    private const int MaxPageSize = 100;
+
+    private const int MaxBatchSize = 100;
+
     private readonly DataService dataService;
 
     private readonly BroadcastSubscription subscription;
@@ -35,6 +44,25 @@ public sealed class DataHandler : Data.DataBase
         return MapToItem(entity);
     }
 
+    public override async Task<BatchGetDataReply> BatchGetData(BatchGetDataRequest request, ServerCallContext context)
+    {
+        if ((request.Ids.Count == 0) || (request.Ids.Count > MaxBatchSize))
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("ids", $"Ids must have 1 to {MaxBatchSize} items.")]);
+        }
+
+        var entities = (await dataService.QueryByIdsAsync(request.Ids.Distinct(), context.CancellationToken)).ToDictionary(static x => x.Id);
+        var missing = request.Ids.Where(x => !entities.ContainsKey(x)).Distinct().ToList();
+        if (missing.Count > 0)
+        {
+            throw RpcErrors.NotFound("Data not found.", "data", missing.Select(static x => x.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        var reply = new BatchGetDataReply();
+        reply.Items.AddRange(request.Ids.Select(x => MapToItem(entities[x])));
+        return reply;
+    }
+
     public override async Task<SetDataReply> SetData(SetDataRequest request, ServerCallContext context)
     {
         var violations = ValidateSetRequest(request);
@@ -58,14 +86,49 @@ public sealed class DataHandler : Data.DataBase
         return new DeleteDataReply { Deleted = status == DataWriteStatus.Success };
     }
 
+    public override async Task<ListDataReply> ListData(ListDataRequest request, ServerCallContext context)
+    {
+        if (request.PageSize < 0)
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("page_size", "Page size must not be negative.")]);
+        }
+
+        var sort = RequestHelper.Parse(request.Sort, DataSort.Id);
+        DataCursor? after = null;
+        if (!String.IsNullOrEmpty(request.PageToken))
+        {
+            var token = DecodePageToken(request.PageToken);
+            if ((token is null) || !IsSameCondition(token, request, sort))
+            {
+                throw RpcErrors.InvalidArgument("Request is invalid.", [("page_token", "Page token is invalid or does not match the request.")]);
+            }
+
+            after = new DataCursor(token.LastId, token.LastName, token.LastValue, token.LastCreatedAt.ToDateTime());
+        }
+
+        var size = request.PageSize == 0 ? DefaultPageSize : Math.Min(request.PageSize, MaxPageSize);
+        var filter = new DataFilter(request.Name, request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
+        var page = await dataService.QueryPageAsync(filter, sort, request.Desc, after, size, context.CancellationToken);
+
+        var reply = new ListDataReply { TotalSize = page.Total };
+        reply.Items.AddRange(page.Items.Select(MapToItem));
+        if (page.HasNext)
+        {
+            reply.NextPageToken = EncodePageToken(request, sort, reply.Items[^1]);
+        }
+
+        return reply;
+    }
+
     //--------------------------------------------------------------------------------
     // Server streaming
     //--------------------------------------------------------------------------------
 
-    public override async Task ListData(ListDataRequest request, IServerStreamWriter<DataItem> responseStream, ServerCallContext context)
+    public override async Task ExportData(ExportDataRequest request, IServerStreamWriter<DataItem> responseStream, ServerCallContext context)
     {
         var sort = RequestHelper.Parse(request.Sort, DataSort.Id);
-        await foreach (var entity in dataService.QueryListAsync(request.Name, sort, request.Desc, context.CancellationToken))
+        var filter = new DataFilter(request.Name, request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
+        await foreach (var entity in dataService.QueryListAsync(filter, sort, request.Desc, context.CancellationToken))
         {
             await responseStream.WriteAsync(MapToItem(entity), context.CancellationToken);
         }
@@ -199,6 +262,44 @@ public sealed class DataHandler : Data.DataBase
 
         return violations;
     }
+
+    private static string EncodePageToken(ListDataRequest request, DataSort sort, DataItem last) =>
+        Base64Url.EncodeToString(new DataPageToken
+        {
+            Name = request.Name,
+            Sort = sort.ToString(),
+            Desc = request.Desc,
+            CreatedFrom = request.CreatedFrom,
+            CreatedTo = request.CreatedTo,
+            LastId = last.Id,
+            LastName = last.Name,
+            LastValue = last.Value,
+            LastCreatedAt = last.CreatedAt
+        }.ToByteArray());
+
+    private static DataPageToken? DecodePageToken(string value)
+    {
+        try
+        {
+            var token = DataPageToken.Parser.ParseFrom(Base64Url.DecodeFromChars(value));
+            return token.LastCreatedAt is null ? null : token;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsSameCondition(DataPageToken token, ListDataRequest request, DataSort sort) =>
+        (token.Name == request.Name) &&
+        (token.Sort == sort.ToString()) &&
+        (token.Desc == request.Desc) &&
+        Equals(token.CreatedFrom, request.CreatedFrom) &&
+        Equals(token.CreatedTo, request.CreatedTo);
 
     private static DataItem MapToItem(DataEntity entity) => new()
     {

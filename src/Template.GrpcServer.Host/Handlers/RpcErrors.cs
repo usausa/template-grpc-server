@@ -29,4 +29,12 @@ public static class RpcErrors
             Message = message,
             Details = { Any.Pack(new ErrorInfo { Reason = reason, Domain = "data", Metadata = { [field] = value } }) }
         }.ToRpcException();
+
+    public static RpcException NotFound(string message, string resourceType, IEnumerable<string> resourceNames) =>
+        new Google.Rpc.Status
+        {
+            Code = (int)Code.NotFound,
+            Message = message,
+            Details = { resourceNames.Select(x => Any.Pack(new ResourceInfo { ResourceType = resourceType, ResourceName = x })) }
+        }.ToRpcException();
 }

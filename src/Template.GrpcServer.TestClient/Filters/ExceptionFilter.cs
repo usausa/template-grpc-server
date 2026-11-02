@@ -39,6 +39,11 @@ public sealed class ExceptionFilter : ICommandFilter
                 {
                     Console.WriteLine($"  reason={info.Reason} domain={info.Domain} {String.Join(" ", info.Metadata.Select(static x => $"{x.Key}={x.Value}"))}");
                 }
+
+                foreach (var resource in status.Details.Where(static x => x.Is(ResourceInfo.Descriptor)).Select(static x => x.Unpack<ResourceInfo>()))
+                {
+                    Console.WriteLine($"  resource={resource.ResourceType}/{resource.ResourceName}");
+                }
             }
 
             var traceId = ex.Trailers.GetValue("trace-id");

@@ -10,10 +10,12 @@ package data.v1;
 service Data {
   // Unary
   rpc GetData (GetDataRequest) returns (DataItem);
+  rpc BatchGetData (BatchGetDataRequest) returns (BatchGetDataReply);
   rpc SetData (SetDataRequest) returns (SetDataReply);
   rpc DeleteData (DeleteDataRequest) returns (DeleteDataReply);
+  rpc ListData (ListDataRequest) returns (ListDataReply);
   // Server streaming
-  rpc ListData (ListDataRequest) returns (stream DataItem);
+  rpc ExportData (ExportDataRequest) returns (stream DataItem);
   // Client streaming
   rpc UploadData (stream SetDataRequest) returns (UploadDataReply);
   // Bidirectional streaming
@@ -24,6 +26,16 @@ service Data {
 
 message GetDataRequest {
   int64 id = 1;
+}
+
+message BatchGetDataRequest {
+  // 1 to 100 ids. Duplicates are allowed.
+  repeated int64 ids = 1;
+}
+
+message BatchGetDataReply {
+  // In the same order as the request.
+  repeated DataItem items = 1;
 }
 
 message DataItem {
@@ -55,6 +67,32 @@ message ListDataRequest {
   // Sort column (Id / Name / Value / CreatedAt). Empty means Id.
   string sort = 2;
   bool desc = 3;
+  // Created at or after.
+  google.protobuf.Timestamp created_from = 4;
+  // Created before.
+  google.protobuf.Timestamp created_to = 5;
+  // 0 means 20. Values above 100 are coerced to 100.
+  int32 page_size = 6;
+  // next_page_token of the previous page. Other fields except page_size must not change.
+  string page_token = 7;
+}
+
+message ListDataReply {
+  repeated DataItem items = 1;
+  // Empty at the end of the collection.
+  string next_page_token = 2;
+  int32 total_size = 3;
+}
+
+message ExportDataRequest {
+  string name = 1;
+  // Sort column (Id / Name / Value / CreatedAt). Empty means Id.
+  string sort = 2;
+  bool desc = 3;
+  // Created at or after.
+  google.protobuf.Timestamp created_from = 4;
+  // Created before.
+  google.protobuf.Timestamp created_to = 5;
 }
 
 message UploadDataReply {

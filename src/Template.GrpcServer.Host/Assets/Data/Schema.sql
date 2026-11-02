@@ -6,3 +6,6 @@ CREATE TABLE IF NOT EXISTS Data (
     PRIMARY KEY (Id AUTOINCREMENT),
     UNIQUE (Name)
 );
+
+CREATE INDEX IF NOT EXISTS IX_Data_Value ON Data (Value, Id);
+CREATE INDEX IF NOT EXISTS IX_Data_CreatedAt ON Data (CreatedAt, Id);
