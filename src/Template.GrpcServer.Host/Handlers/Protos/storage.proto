@@ -2,7 +2,7 @@ syntax = "proto3";
 
 option csharp_namespace = "Template.GrpcServer.Host";
 
-package storage;
+package storage.v1;
 
 // The storage service definition.
 service Storage {

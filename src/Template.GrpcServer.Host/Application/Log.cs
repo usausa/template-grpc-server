@@ -30,6 +30,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call cancelled. method=[{method}]")]
     public static partial void InfoGrpcCallCancelled(this ILogger logger, string method);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call deadline exceeded. method=[{method}]")]
+    public static partial void InfoGrpcCallDeadlineExceeded(this ILogger logger, string method);
+
     // Error
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception. method=[{method}]")]

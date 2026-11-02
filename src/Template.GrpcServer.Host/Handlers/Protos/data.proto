@@ -4,7 +4,7 @@ import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Template.GrpcServer.Host";
 
-package data;
+package data.v1;
 
 // The data service definition.
 service Data {

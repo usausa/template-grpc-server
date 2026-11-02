@@ -19,6 +19,7 @@ public static partial class CommandExtensions
         commands.AddCommand<NotifyCommand>();
         commands.AddCommand<UploadFileCommand>();
         commands.AddCommand<DownloadFileCommand>();
+        commands.AddCommand<TokenCommand>();
     }
 
     [ComponentRegistration(Lifetime.Transient, "Command$")]

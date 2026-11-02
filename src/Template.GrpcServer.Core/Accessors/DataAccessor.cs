@@ -9,11 +9,11 @@ public sealed partial class DataAccessor
     public partial IAsyncEnumerable<DataEntity> QueryListAsync(string? name, DataSort sort, bool desc, [EnumeratorCancellation] CancellationToken cancellationToken);
 
     [QueryFirst]
-    public partial ValueTask<DataEntity?> QueryAsync(long id);
+    public partial ValueTask<DataEntity?> QueryAsync(long id, CancellationToken cancellationToken);
 
     [ExecuteScalar]
-    public partial ValueTask<long> InsertAsync(string name, int value, DateTime createdAt);
+    public partial ValueTask<long> InsertAsync(string name, int value, DateTime createdAt, CancellationToken cancellationToken);
 
     [Execute]
-    public partial ValueTask<int> DeleteAsync(long id);
+    public partial ValueTask<int> DeleteAsync(long id, CancellationToken cancellationToken);
 }

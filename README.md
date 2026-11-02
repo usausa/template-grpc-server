@@ -2,7 +2,7 @@
 
 ## 動作確認用クライアント(Template.GrpcServer.TestClient)
 
-サーバーの全 RPC を一巡できるコンソール。`Grpc.Net.ClientFactory`(`AddGrpcClient` + `ConfigureChannel`)でリトライポリシー(`Unavailable` を指数バックオフで最大 5 回)と、クライアント側インターセプター(JWT 付与 / 呼出ログ)を持つ。JWT はサーバーと同じ鍵で自前発行する(動作確認用。実運用のクライアントは認証サーバーから取得する)。
+サーバーの全 RPC を一巡できるコンソール。`Grpc.Net.ClientFactory`(`AddGrpcClient` + `ConfigureChannel`)でリトライポリシー(`Unavailable` を指数バックオフで最大 5 回)と、クライアント側インターセプター(JWT 付与 / 呼出ログ)を持つ。Unary(`get` / `set` / `delete`)には期限を付ける(リトライも含めた呼出全体の上限)。JWT はサーバーと同じ鍵で自前発行する(動作確認用。実運用のクライアントは認証サーバーから取得する)。
 
 ```bash
 dotnet run --project src/Template.GrpcServer.TestClient -- set --name item-1 --value 10
@@ -14,6 +14,7 @@ dotnet run --project src/Template.GrpcServer.TestClient -- chat --name me
 dotnet run --project src/Template.GrpcServer.TestClient -- notify --name alice
 dotnet run --project src/Template.GrpcServer.TestClient -- upload-file --file ./big.bin --name big.bin --compress
 dotnet run --project src/Template.GrpcServer.TestClient -- download-file --name big.bin --output ./big.bin
+dotnet run --project src/Template.GrpcServer.TestClient -- token
 ```
 
 | コマンド | RPC | 内容 |
@@ -24,8 +25,19 @@ dotnet run --project src/Template.GrpcServer.TestClient -- download-file --name 
 | `chat` | Bidirectional | 標準入力の各行を送り、エコーを表示する。EOF で終了 |
 | `notify` | Bidirectional(サーバー主体) | 参加して配信(`Tick` / `Broadcast`)を表示し、標準入力の各行を全員へ配信する。EOF で終了 |
 | `upload-file` / `download-file` | Client / Server streaming(`Storage` サービス) | 最初の 1 通がメタデータ、以降がチャンク(`Client:ChunkSize`)。進捗を表示する。`--compress` で要求ストリームを gzip 圧縮する |
+| `token` | — | 動作確認用の JWT を表示する(grpcui などから呼ぶときに付ける) |
 
-接続先・鍵・リトライは `appsettings.json` の `Client` セクション(環境変数 `Client__Address` 等で上書き可)。サーバー側の定期配信は `Tick:Enable=true` で有効になる。
+接続先・鍵・リトライ・期限(`Client:Deadline`。既定 30 秒)は `appsettings.json` の `Client` セクション(環境変数 `Client__Address` 等で上書き可)。サーバー側の定期配信は `Tick:Enable=true` で有効になる。
+
+## grpcui で試す
+
+Development では Reflection が有効なので、[grpcui](https://github.com/fullstorydev/grpcui) でサービスの一覧を見て RPC を試せる。`Data` と `Storage` は JWT が要るので、TestClient の `token` で表示したトークンを付ける。
+
+```bash
+grpcui -plaintext -rpc-header "authorization: Bearer <token>" localhost:5000
+```
+
+双方向ストリーミング(`Chat` / `Notify`)は対話できない(要求をまとめて送り、応答をまとめて表示する)ので、TestClient の `chat` / `notify` で試す。
 
 ## 圧縮とファイル保管
 

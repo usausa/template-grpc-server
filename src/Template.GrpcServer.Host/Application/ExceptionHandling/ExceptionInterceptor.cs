@@ -11,9 +11,12 @@ public sealed class ExceptionInterceptor : Interceptor
 {
     private readonly ILogger<ExceptionInterceptor> log;
 
-    public ExceptionInterceptor(ILogger<ExceptionInterceptor> log)
+    private readonly TimeProvider timeProvider;
+
+    public ExceptionInterceptor(ILogger<ExceptionInterceptor> log, TimeProvider timeProvider)
     {
         this.log = log;
+        this.timeProvider = timeProvider;
     }
 
     public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
@@ -111,6 +114,12 @@ public sealed class ExceptionInterceptor : Interceptor
         // クライアントの切断(ストリーミング中の中断など)は失敗にしない
         if (context.CancellationToken.IsCancellationRequested)
         {
+            if (context.Deadline <= timeProvider.GetUtcNow().UtcDateTime)
+            {
+                log.InfoGrpcCallDeadlineExceeded(context.Method);
+                return new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline exceeded."));
+            }
+
             log.InfoGrpcCallCancelled(context.Method);
             return new RpcException(new Status(StatusCode.Cancelled, "Call cancelled."));
         }

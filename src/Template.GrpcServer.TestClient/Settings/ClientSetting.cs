@@ -12,6 +12,9 @@ public sealed class ClientSetting
     [Required]
     public RetrySetting Retry { get; set; } = default!;
 
+    [Range(1, 600_000)]
+    public int Deadline { get; set; }
+
     [Range(1024, 1_048_576)]
     public int ChunkSize { get; set; }
 

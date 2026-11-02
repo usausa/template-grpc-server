@@ -26,7 +26,7 @@ public sealed class DataHandler : Data.DataBase
 
     public override async Task<DataItem> GetData(GetDataRequest request, ServerCallContext context)
     {
-        var entity = await dataService.QueryAsync(request.Id);
+        var entity = await dataService.QueryAsync(request.Id, context.CancellationToken);
         if (entity is null)
         {
             throw new RpcException(new Status(StatusCode.NotFound, "Data not found."));
@@ -44,7 +44,7 @@ public sealed class DataHandler : Data.DataBase
         }
 
         var entity = new DataEntity { Name = request.Name, Value = request.Value };
-        if (await dataService.InsertAsync(entity) == DataWriteStatus.Duplicate)
+        if (await dataService.InsertAsync(entity, context.CancellationToken) == DataWriteStatus.Duplicate)
         {
             throw RpcErrors.AlreadyExists("Duplicate name.", "DUPLICATE_NAME", "name", request.Name);
         }
@@ -54,7 +54,7 @@ public sealed class DataHandler : Data.DataBase
 
     public override async Task<DeleteDataReply> DeleteData(DeleteDataRequest request, ServerCallContext context)
     {
-        var status = await dataService.DeleteAsync(request.Id);
+        var status = await dataService.DeleteAsync(request.Id, context.CancellationToken);
         return new DeleteDataReply { Deleted = status == DataWriteStatus.Success };
     }
 
@@ -87,7 +87,7 @@ public sealed class DataHandler : Data.DataBase
             {
                 reply.Failures.Add(new UploadFailure { Index = index, Name = request.Name, Reason = String.Join(' ', violations.Select(static x => x.Description)) });
             }
-            else if (await dataService.InsertAsync(new DataEntity { Name = request.Name, Value = request.Value }) == DataWriteStatus.Success)
+            else if (await dataService.InsertAsync(new DataEntity { Name = request.Name, Value = request.Value }, context.CancellationToken) == DataWriteStatus.Success)
             {
                 reply.Count++;
             }
