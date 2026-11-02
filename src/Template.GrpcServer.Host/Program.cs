@@ -51,3 +51,6 @@ await app.InitializeApplicationAsync();
 
 // Run
 await app.RunAsync();
+
+[ExcludeFromCodeCoverage]
+public partial class Program;

@@ -43,3 +43,12 @@ grpcui -plaintext -rpc-header "authorization: Bearer <token>" localhost:5000
 
 - 応答の圧縮は `Grpc:Compression`(既定 gzip / `Fastest`)。クライアントが `grpc-accept-encoding` で gzip を受け付けるときだけ効く。要求の圧縮はクライアントが `grpc-internal-encoding-request` ヘッダーで指定する
 - ファイルは `Storage:Root`(既定 `storage`)配下に `FileStorage` が保存する(一時ファイルへ書いて原子的に置換)。`..` を含む名前は `Invalid path.`(`InvalidArgument`)
+
+## テスト
+
+```bash
+dotnet run --project tests/Template.GrpcServer.IntegrationTests
+```
+
+- xunit.v3 + Microsoft Testing Platform(テストのプロジェクトは実行ファイル。`dotnet run` で実行する)
+- `IntegrationTests` = `WebApplicationFactory` のテストサーバー(テストクラスごとに一時フォルダーの DB・ストレージ)へ `GrpcChannel` でつなぎ、4 形態の RPC・エラーの詳細・認証・期限切れ・要求メトリクス・ファイル転送を確かめる
