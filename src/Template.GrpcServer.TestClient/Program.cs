@@ -37,6 +37,7 @@ builder.Services
     {
         options.Address = new Uri(setting.Address);
     })
+    .ConfigurePrimaryHttpMessageHandler(() => CreateHandler(setting.Connection))
     .ConfigureChannel(options =>
     {
         // Unavailable(接続不可・再起動中)だけを指数バックオフで再試行する。ストリーミングも最初の応答までは対象
@@ -66,6 +67,7 @@ builder.Services
     {
         options.Address = new Uri(setting.Address);
     })
+    .ConfigurePrimaryHttpMessageHandler(() => CreateHandler(setting.Connection))
     .AddInterceptor<LoggingInterceptor>()
     .AddInterceptor<AuthorizationInterceptor>();
 
@@ -91,3 +93,11 @@ if (host.Services is GeneratedServiceProvider generatedProvider)
 }
 #endif
 return await host.RunAsync();
+
+static SocketsHttpHandler CreateHandler(ClientSetting.ConnectionSetting setting) => new()
+{
+    EnableMultipleHttp2Connections = true,
+    ConnectTimeout = TimeSpan.FromMilliseconds(setting.ConnectTimeout),
+    KeepAlivePingDelay = setting.KeepAlivePingDelay > 0 ? TimeSpan.FromMilliseconds(setting.KeepAlivePingDelay) : Timeout.InfiniteTimeSpan,
+    KeepAlivePingTimeout = TimeSpan.FromMilliseconds(setting.KeepAlivePingTimeout)
+};

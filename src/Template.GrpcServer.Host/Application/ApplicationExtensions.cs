@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.FeatureManagement;
@@ -58,6 +59,9 @@ public static class ApplicationExtensions
 
     public static IHostApplicationBuilder ConfigureHost(this WebApplicationBuilder builder)
     {
+        // Kestrel
+        builder.Services.Configure<KestrelServerOptions>(builder.Configuration.GetSection("Kestrel"));
+
         // Service
         builder.Services
             .AddWindowsService()

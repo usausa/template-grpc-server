@@ -4,6 +4,8 @@
 
 サーバーの全 RPC を一巡できるコンソール。`Grpc.Net.ClientFactory`(`AddGrpcClient` + `ConfigureChannel`)でリトライポリシー(`Unavailable` を指数バックオフで最大 5 回)と、クライアント側インターセプター(JWT 付与 / 呼出ログ)を持つ。Unary(`get` / `batch-get` / `set` / `update` / `delete` / `list`)には期限を付ける(リトライも含めた呼出全体の上限)。JWT はサーバーと同じ鍵で自前発行する(動作確認用。実運用のクライアントは認証サーバーから取得する)。
 
+サーバーは `dotnet run --project src/Template.GrpcServer.Host` で起動する(Development・`http://localhost:5000`)。次のコマンドは別の端末で使い、新しい DB で上から順に流すと ID と etag が合う。
+
 ```bash
 dotnet run --project src/Template.GrpcServer.TestClient -- set --name item-1 --value 10
 dotnet run --project src/Template.GrpcServer.TestClient -- set --name item-2 --value 20 --status Inactive --labels env=dev,owner=me
@@ -21,7 +23,7 @@ echo "a 1" | dotnet run --project src/Template.GrpcServer.TestClient -- upload
 dotnet run --project src/Template.GrpcServer.TestClient -- chat --name me
 dotnet run --project src/Template.GrpcServer.TestClient -- notify --name alice
 dotnet run --project src/Template.GrpcServer.TestClient -- upload-file --file ./big.bin --name big.bin --compress
-dotnet run --project src/Template.GrpcServer.TestClient -- download-file --name big.bin --output ./big.bin
+dotnet run --project src/Template.GrpcServer.TestClient -- download-file --name big.bin --output ./big-copy.bin
 dotnet run --project src/Template.GrpcServer.TestClient -- token
 ```
 
@@ -33,13 +35,13 @@ dotnet run --project src/Template.GrpcServer.TestClient -- token
 | `batch-get` | Unary | `--ids` の順に返す(重複はそのまま)。無い ID が 1 件でもあれば `NotFound` で、無い ID を表示する |
 | `list` | Unary(ページング) | 名前の部分一致・作成日時の範囲(`--from` 以上 `--to` 未満)・状態(`--status`)・並べ替え(`--sort` は `Id` / `Name` / `Value` / `CreatedAt`。既定は `Id`。`--desc`)で `--size` 件ずつ(既定 20・上限 100)。続きは表示された `next` を `--token` に渡す。`--all` で最後までたどる |
 | `export` | Server streaming | `list` と同じ条件で、全件を 1 件ずつ受け取る |
-| `upload` | Client streaming | 標準入力の各行(`name value`)を送る。登録できなかった行は位置と理由付きで返り(`失敗しても止めない`)、`NG [index]` で表示する |
+| `upload` | Client streaming | 標準入力の各行(`name value`)を送る。登録できなかった行は位置と理由付きで返り(失敗しても止めない)、`NG [index]` で表示する |
 | `chat` | Bidirectional | 標準入力の各行を送り、エコーを表示する。EOF で終了 |
 | `notify` | Bidirectional(サーバー主体) | 参加して配信(`Tick` / `Broadcast`)を表示し、標準入力の各行を全員へ配信する。EOF で終了 |
 | `upload-file` / `download-file` | Client / Server streaming(`Storage` サービス) | 最初の 1 通がメタデータ、以降がチャンク(`Client:ChunkSize`)。進捗を表示する。`--compress` で要求ストリームを gzip 圧縮する |
 | `token` | — | 動作確認用の JWT を表示する(grpcui などから呼ぶときに付ける) |
 
-項目は `id name value created_at status [labels] etag` の形で表示する。etag は版を引用符で囲んだもの(作ると `"1"`、変えるたびに 1 つ進む)。接続先・鍵・リトライ・期限(`Client:Deadline`。既定 30 秒)は `appsettings.json` の `Client` セクション(環境変数 `Client__Address` 等で上書き可)。サーバー側の定期配信は `Tick:Enable=true` で有効になる。
+項目は `id name value created_at status [labels] etag` の形で表示する。etag は版を引用符で囲んだもの(作ると `"1"`、変えるたびに 1 つ進む)。接続先・鍵・リトライ・接続(`Client:Connection`)・期限(`Client:Deadline`。既定 30 秒)は `appsettings.json` の `Client` セクション(環境変数 `Client__Address` 等で上書き可)。サーバー側の定期配信は `Tick:Enable=true` で有効になる。
 
 ## grpcui で試す
 
@@ -54,8 +56,14 @@ grpcui -plaintext -rpc-header "authorization: Bearer <token>" localhost:5000
 ## 圧縮・DB・ファイル保管
 
 - 応答の圧縮は `Grpc:Compression`(既定 gzip / `Fastest`)。クライアントが `grpc-accept-encoding` で gzip を受け付けるときだけ効く。要求の圧縮はクライアントが `grpc-internal-encoding-request` ヘッダーで指定する
-- DB は `ConnectionStrings:Default`(既定 `data.db`)。表は起動時に `Assets/Data/Schema.sql` で作り、移行の仕組みは持たないので、列が変わったら `data.db` を消して作り直す
+- DB は `ConnectionStrings:Default`(既定 `data.db`。Host は起動時に作業フォルダーを出力のフォルダー `bin/<構成>/net10.0` にするので、そこにできる)。表は起動時に `Assets/Data/Schema.sql` で作り、移行の仕組みは持たないので、列が変わったら `data.db` を消して作り直す
 - ファイルは `Storage:Root`(既定 `storage`)配下に `FileStorage` が保存する(一時ファイルへ書いて原子的に置換)。`..` を含む名前は `Invalid path.`(`InvalidArgument`)
+
+## 接続の保ち方
+
+- サーバーは `appsettings.json` の `Kestrel:Limits`。`Http2:KeepAlivePingDelay`(既定 30 秒)の間に何も届かなければ ping を送り、`Http2:KeepAlivePingTimeout`(20 秒)のうちに応答が無ければ接続を切る(項目を消すと ping を送らない)。`KeepAliveTimeout`(2 分 10 秒)は要求の無い接続を閉じるまで
+- TestClient は `appsettings.json` の `Client:Connection`。`ConnectTimeout`(5000 ミリ秒)のうちにつながらなければ `Unavailable` になり、`Client:Retry` のとおり再試行する。`KeepAlivePingDelay`(30000。0 で送らない)と `KeepAlivePingTimeout`(20000)は、呼び出しの途中に何も届かないときの ping
+- ping の間隔は、途中のロードバランサーのアイドル(AWS NLB は 350 秒で変えられない)より短くする。長く開く `Notify` / `Chat` がアイドルで切られなくなる
 
 ## テスト
 

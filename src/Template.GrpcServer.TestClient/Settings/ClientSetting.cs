@@ -12,6 +12,9 @@ public sealed class ClientSetting
     [Required]
     public RetrySetting Retry { get; set; } = default!;
 
+    [Required]
+    public ConnectionSetting Connection { get; set; } = default!;
+
     [Range(1, 600_000)]
     public int Deadline { get; set; }
 
@@ -49,6 +52,18 @@ public sealed class ClientSetting
 
         [Range(1.0, 10.0)]
         public double BackoffMultiplier { get; set; }
+    }
+
+    public sealed class ConnectionSetting
+    {
+        [Range(1, 600_000)]
+        public int ConnectTimeout { get; set; }
+
+        [Range(0, 3_600_000)]
+        public int KeepAlivePingDelay { get; set; }
+
+        [Range(1, 600_000)]
+        public int KeepAlivePingTimeout { get; set; }
     }
 }
 #pragma warning restore CA1034
