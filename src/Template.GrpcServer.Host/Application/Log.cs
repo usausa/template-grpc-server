@@ -33,6 +33,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "gRPC call deadline exceeded. method=[{method}]")]
     public static partial void InfoGrpcCallDeadlineExceeded(this ILogger logger, string method);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Long execution. method=[{method}], elapsed=[{elapsed}]")]
+    public static partial void WarnLongExecution(this ILogger logger, string method, long elapsed);
+
     // Error
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception. method=[{method}]")]

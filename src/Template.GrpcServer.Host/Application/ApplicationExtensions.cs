@@ -97,6 +97,7 @@ public static class ApplicationExtensions
         {
             // Loggingを外側にし、Exceptionが変換した後の状態を記録する
             options.Interceptors.Add<LoggingInterceptor>();
+            options.Interceptors.Add<RequestMetricsInterceptor>();
             options.Interceptors.Add<ExceptionInterceptor>();
             options.Interceptors.Add<ServiceContextInterceptor>();
 
@@ -302,6 +303,8 @@ public static class ApplicationExtensions
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<GrpcSetting>>().Value);
         builder.Services.AddOptions<ProfilerSetting>().BindConfiguration("Profiler").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ProfilerSetting>>().Value);
+        builder.Services.AddOptions<TelemetrySetting>().BindConfiguration("Telemetry").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<TelemetrySetting>>().Value);
 
         return builder;
     }
