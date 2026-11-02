@@ -1,6 +1,7 @@
 namespace Template.GrpcServer.Services;
 
 using Template.GrpcServer.Accessors;
+using Template.GrpcServer.Infrastructure.Data;
 
 public sealed class DataService
 {
@@ -21,13 +22,13 @@ public sealed class DataService
     }
 
     public IAsyncEnumerable<DataEntity> QueryListAsync(DataFilter filter, DataSort sort, bool desc, CancellationToken cancellationToken = default) =>
-        dataAccessor.QueryListAsync(dialect.Match(filter.Name), filter.CreatedFrom, filter.CreatedTo, sort, desc, cancellationToken);
+        dataAccessor.QueryListAsync(dialect.Match(filter.Name), filter.Status, filter.CreatedFrom, filter.CreatedTo, sort, desc, cancellationToken);
 
     public async ValueTask<CursorPage<DataEntity>> QueryPageAsync(DataFilter filter, DataSort sort, bool desc, DataCursor? after, int size, CancellationToken cancellationToken = default)
     {
         var pattern = dialect.Match(filter.Name);
-        var total = await dataAccessor.CountAsync(pattern, filter.CreatedFrom, filter.CreatedTo, cancellationToken);
-        var items = await dataAccessor.QueryPageAsync(pattern, filter.CreatedFrom, filter.CreatedTo, sort, desc, after is null ? null : GetSortKey(after, sort), after?.Id, size + 1, cancellationToken);
+        var total = await dataAccessor.CountAsync(pattern, filter.Status, filter.CreatedFrom, filter.CreatedTo, cancellationToken);
+        var items = await dataAccessor.QueryPageAsync(pattern, filter.Status, filter.CreatedFrom, filter.CreatedTo, sort, desc, after is null ? null : GetSortKey(after, sort), after?.Id, size + 1, cancellationToken);
         var hasNext = items.Count > size;
         if (hasNext)
         {
@@ -50,7 +51,7 @@ public sealed class DataService
         try
         {
             entity.CreatedAt = context.Now.UtcDateTime;
-            entity.Id = await dataAccessor.InsertAsync(entity.Name, entity.Value, entity.CreatedAt, cancellationToken);
+            entity.Id = await dataAccessor.InsertAsync(entity.Name, entity.Value, entity.Status, LabelsConverter.ToDb(entity.Labels), entity.CreatedAt, cancellationToken);
             return DataWriteStatus.Success;
         }
         catch (DbException ex) when (dialect.IsDuplicate(ex))

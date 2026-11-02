@@ -20,6 +20,12 @@ public sealed class SetCommand : ICommandHandler
     [Option<int>("--value", "-v", Description = "value", Required = true)]
     public int Value { get; set; }
 
+    [Option<DataStatus>("--status", Description = "status")]
+    public DataStatus Status { get; set; }
+
+    [Option<string>("--labels", Description = "labels (k=v, comma separated)")]
+    public string? Labels { get; set; }
+
     public SetCommand(TimeProvider timeProvider, ClientSetting setting, Data.DataClient client)
     {
         this.timeProvider = timeProvider;
@@ -29,8 +35,10 @@ public sealed class SetCommand : ICommandHandler
 
     public async ValueTask ExecuteAsync(CommandContext context)
     {
+        var request = new SetDataRequest { Name = Name, Value = Value, Status = Status };
+        request.Labels.Add(OptionHelper.ParseLabels(Labels));
         var deadline = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(setting.Deadline);
-        var reply = await client.SetDataAsync(new SetDataRequest { Name = Name, Value = Value }, deadline: deadline, cancellationToken: context.CancellationToken);
+        var reply = await client.SetDataAsync(request, deadline: deadline, cancellationToken: context.CancellationToken);
         Console.WriteLine($"OK {reply.Id}");
     }
 }

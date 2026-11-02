@@ -1,7 +1,5 @@
 namespace Template.GrpcServer.TestClient.Commands;
 
-using Google.Protobuf.WellKnownTypes;
-
 using Smart.CommandLine.Hosting;
 
 using Template.GrpcServer.TestClient.Settings;
@@ -31,6 +29,9 @@ public sealed class ListCommand : ICommandHandler
     [Option<string>("--to", Description = "created before (ISO 8601)")]
     public string? To { get; set; }
 
+    [Option<DataStatus>("--status", Description = "status filter")]
+    public DataStatus Status { get; set; }
+
     [Option<int>("--size", Description = "page size (0 is the server default)")]
     public int Size { get; set; }
 
@@ -54,8 +55,9 @@ public sealed class ListCommand : ICommandHandler
             Name = Name ?? string.Empty,
             Sort = Sort ?? string.Empty,
             Desc = Desc,
-            CreatedFrom = ParseTimestamp(From),
-            CreatedTo = ParseTimestamp(To),
+            CreatedFrom = OptionHelper.ParseTimestamp(From),
+            CreatedTo = OptionHelper.ParseTimestamp(To),
+            Status = Status,
             PageSize = Size,
             PageToken = Token ?? string.Empty
         };
@@ -67,7 +69,7 @@ public sealed class ListCommand : ICommandHandler
             var reply = await client.ListDataAsync(request, deadline: deadline, cancellationToken: context.CancellationToken);
             foreach (var item in reply.Items)
             {
-                Console.WriteLine($"{item.Id} {item.Name} {item.Value} {item.CreatedAt.ToDateTime():O}");
+                Console.WriteLine(item.ToDisplayString());
             }
 
             count += reply.Items.Count;
@@ -80,7 +82,4 @@ public sealed class ListCommand : ICommandHandler
             request.PageToken = reply.NextPageToken;
         }
     }
-
-    private static Timestamp? ParseTimestamp(string? value) =>
-        String.IsNullOrEmpty(value) ? null : Timestamp.FromDateTimeOffset(DateTimeOffset.Parse(value, CultureInfo.InvariantCulture));
 }

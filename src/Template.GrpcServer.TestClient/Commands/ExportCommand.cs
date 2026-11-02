@@ -1,7 +1,5 @@
 namespace Template.GrpcServer.TestClient.Commands;
 
-using Google.Protobuf.WellKnownTypes;
-
 using Grpc.Core;
 
 using Smart.CommandLine.Hosting;
@@ -27,6 +25,9 @@ public sealed class ExportCommand : ICommandHandler
     [Option<string>("--to", Description = "created before (ISO 8601)")]
     public string? To { get; set; }
 
+    [Option<DataStatus>("--status", Description = "status filter")]
+    public DataStatus Status { get; set; }
+
     public ExportCommand(Data.DataClient client)
     {
         this.client = client;
@@ -39,20 +40,18 @@ public sealed class ExportCommand : ICommandHandler
             Name = Name ?? string.Empty,
             Sort = Sort ?? string.Empty,
             Desc = Desc,
-            CreatedFrom = ParseTimestamp(From),
-            CreatedTo = ParseTimestamp(To)
+            CreatedFrom = OptionHelper.ParseTimestamp(From),
+            CreatedTo = OptionHelper.ParseTimestamp(To),
+            Status = Status
         };
         using var call = client.ExportData(request, cancellationToken: context.CancellationToken);
         var count = 0;
         await foreach (var item in call.ResponseStream.ReadAllAsync(context.CancellationToken))
         {
-            Console.WriteLine($"{item.Id} {item.Name} {item.Value} {item.CreatedAt.ToDateTime():O}");
+            Console.WriteLine(item.ToDisplayString());
             count++;
         }
 
         Console.WriteLine($"OK {count}");
     }
-
-    private static Timestamp? ParseTimestamp(string? value) =>
-        String.IsNullOrEmpty(value) ? null : Timestamp.FromDateTimeOffset(DateTimeOffset.Parse(value, CultureInfo.InvariantCulture));
 }

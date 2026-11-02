@@ -9,6 +9,8 @@ using Grpc.Core;
 
 using Template.GrpcServer.Host.Subscriptions;
 
+using EntityDataStatus = Template.GrpcServer.Models.Entity.DataStatus;
+
 public sealed class DataHandler : Data.DataBase
 {
     private const int DefaultPageSize = 20;
@@ -16,6 +18,10 @@ public sealed class DataHandler : Data.DataBase
     private const int MaxPageSize = 100;
 
     private const int MaxBatchSize = 100;
+
+    private const int MaxLabelCount = 16;
+
+    private const int MaxLabelLength = 63;
 
     private readonly DataService dataService;
 
@@ -71,7 +77,7 @@ public sealed class DataHandler : Data.DataBase
             throw RpcErrors.InvalidArgument("Request is invalid.", violations);
         }
 
-        var entity = new DataEntity { Name = request.Name, Value = request.Value };
+        var entity = ToEntity(request);
         if (await dataService.InsertAsync(entity, context.CancellationToken) == DataWriteStatus.Duplicate)
         {
             throw RpcErrors.AlreadyExists("Duplicate name.", "DUPLICATE_NAME", "name", request.Name);
@@ -93,6 +99,11 @@ public sealed class DataHandler : Data.DataBase
             throw RpcErrors.InvalidArgument("Request is invalid.", [("page_size", "Page size must not be negative.")]);
         }
 
+        if (!System.Enum.IsDefined(request.Status))
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("status", "Status is invalid.")]);
+        }
+
         var sort = RequestHelper.Parse(request.Sort, DataSort.Id);
         DataCursor? after = null;
         if (!String.IsNullOrEmpty(request.PageToken))
@@ -107,7 +118,7 @@ public sealed class DataHandler : Data.DataBase
         }
 
         var size = request.PageSize == 0 ? DefaultPageSize : Math.Min(request.PageSize, MaxPageSize);
-        var filter = new DataFilter(request.Name, request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
+        var filter = new DataFilter(request.Name, ToFilterStatus(request.Status), request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
         var page = await dataService.QueryPageAsync(filter, sort, request.Desc, after, size, context.CancellationToken);
 
         var reply = new ListDataReply { TotalSize = page.Total };
@@ -126,8 +137,13 @@ public sealed class DataHandler : Data.DataBase
 
     public override async Task ExportData(ExportDataRequest request, IServerStreamWriter<DataItem> responseStream, ServerCallContext context)
     {
+        if (!System.Enum.IsDefined(request.Status))
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("status", "Status is invalid.")]);
+        }
+
         var sort = RequestHelper.Parse(request.Sort, DataSort.Id);
-        var filter = new DataFilter(request.Name, request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
+        var filter = new DataFilter(request.Name, ToFilterStatus(request.Status), request.CreatedFrom?.ToDateTime(), request.CreatedTo?.ToDateTime());
         await foreach (var entity in dataService.QueryListAsync(filter, sort, request.Desc, context.CancellationToken))
         {
             await responseStream.WriteAsync(MapToItem(entity), context.CancellationToken);
@@ -150,7 +166,7 @@ public sealed class DataHandler : Data.DataBase
             {
                 reply.Failures.Add(new UploadFailure { Index = index, Name = request.Name, Reason = String.Join(' ', violations.Select(static x => x.Description)) });
             }
-            else if (await dataService.InsertAsync(new DataEntity { Name = request.Name, Value = request.Value }, context.CancellationToken) == DataWriteStatus.Success)
+            else if (await dataService.InsertAsync(ToEntity(request), context.CancellationToken) == DataWriteStatus.Success)
             {
                 reply.Count++;
             }
@@ -260,8 +276,29 @@ public sealed class DataHandler : Data.DataBase
             violations.Add(("value", "Value must be between 0 and 1000000."));
         }
 
+        if (!System.Enum.IsDefined(request.Status))
+        {
+            violations.Add(("status", "Status is invalid."));
+        }
+
+        if ((request.Labels.Count > MaxLabelCount) || request.Labels.Any(static x => (x.Key.Length is 0 or > MaxLabelLength) || (x.Value.Length > MaxLabelLength)))
+        {
+            violations.Add(("labels", $"Labels must be {MaxLabelCount} items or less, with keys of 1 to {MaxLabelLength} characters and values of {MaxLabelLength} characters or less."));
+        }
+
         return violations;
     }
+
+    private static DataEntity ToEntity(SetDataRequest request) => new()
+    {
+        Name = request.Name,
+        Value = request.Value,
+        Status = request.Status == DataStatus.Unspecified ? EntityDataStatus.Active : (EntityDataStatus)(int)request.Status,
+        Labels = new Dictionary<string, string>(request.Labels)
+    };
+
+    private static EntityDataStatus? ToFilterStatus(DataStatus status) =>
+        status == DataStatus.Unspecified ? null : (EntityDataStatus)(int)status;
 
     private static string EncodePageToken(ListDataRequest request, DataSort sort, DataItem last) =>
         Base64Url.EncodeToString(new DataPageToken
@@ -271,6 +308,7 @@ public sealed class DataHandler : Data.DataBase
             Desc = request.Desc,
             CreatedFrom = request.CreatedFrom,
             CreatedTo = request.CreatedTo,
+            Status = (int)request.Status,
             LastId = last.Id,
             LastName = last.Name,
             LastValue = last.Value,
@@ -299,13 +337,24 @@ public sealed class DataHandler : Data.DataBase
         (token.Sort == sort.ToString()) &&
         (token.Desc == request.Desc) &&
         Equals(token.CreatedFrom, request.CreatedFrom) &&
-        Equals(token.CreatedTo, request.CreatedTo);
+        Equals(token.CreatedTo, request.CreatedTo) &&
+        (token.Status == (int)request.Status);
 
-    private static DataItem MapToItem(DataEntity entity) => new()
+    private static DataItem MapToItem(DataEntity entity)
     {
-        Id = entity.Id,
-        Name = entity.Name,
-        Value = entity.Value,
-        CreatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(entity.CreatedAt, DateTimeKind.Utc))
-    };
+        var item = new DataItem
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Value = entity.Value,
+            CreatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(entity.CreatedAt, DateTimeKind.Utc)),
+            Status = (DataStatus)(int)entity.Status
+        };
+        foreach (var label in entity.Labels)
+        {
+            item.Labels.Add(label.Key, label.Value);
+        }
+
+        return item;
+    }
 }

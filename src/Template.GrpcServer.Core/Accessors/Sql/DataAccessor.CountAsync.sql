@@ -7,6 +7,9 @@ WHERE
 /*% if (name != null) { */
     AND Name LIKE /*@ name */'' ESCAPE '\'
 /*% } */
+/*% if (status != null) { */
+    AND Status = /*@ status */1
+/*% } */
 /*% if (createdFrom != null) { */
     AND CreatedAt >= /*@ createdFrom */'2000-01-01'
 /*% } */

@@ -32,7 +32,7 @@ public sealed class BatchGetCommand : ICommandHandler
         var reply = await client.BatchGetDataAsync(request, deadline: deadline, cancellationToken: context.CancellationToken);
         foreach (var item in reply.Items)
         {
-            Console.WriteLine($"{item.Id} {item.Name} {item.Value} {item.CreatedAt.ToDateTime():O}");
+            Console.WriteLine(item.ToDisplayString());
         }
 
         Console.WriteLine($"OK {reply.Items.Count}");

@@ -28,6 +28,6 @@ public sealed class GetCommand : ICommandHandler
     {
         var deadline = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(setting.Deadline);
         var item = await client.GetDataAsync(new GetDataRequest { Id = Id }, deadline: deadline, cancellationToken: context.CancellationToken);
-        Console.WriteLine($"OK {item.Id} {item.Name} {item.Value} {item.CreatedAt.ToDateTime():O}");
+        Console.WriteLine($"OK {item.ToDisplayString()}");
     }
 }

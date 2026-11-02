@@ -47,7 +47,7 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
 
         // Act
-        using var call = client.SetDataAsync(new SetDataRequest { Name = string.Empty, Value = -1 }, cancellationToken: TestContext.Current.CancellationToken);
+        using var call = client.SetDataAsync(new SetDataRequest { Name = string.Empty, Value = -1, Status = (DataStatus)99 }, cancellationToken: TestContext.Current.CancellationToken);
         var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
 
         // Assert
@@ -57,8 +57,48 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         Assert.Collection(
             violations,
             static x => Assert.Equal("name", x.Field),
-            static x => Assert.Equal("value", x.Field));
+            static x => Assert.Equal("value", x.Field),
+            static x => Assert.Equal("status", x.Field));
         Assert.NotNull(exception.Trailers.GetValue("trace-id"));
+    }
+
+    [Fact]
+    public async Task SetDataDefaultsToActiveAndKeepsLabels()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var request = new SetDataRequest { Name = $"labels-{Guid.NewGuid():N}", Value = 1, Labels = { ["env"] = "dev", [new string('k', 63)] = new string('v', 63) } };
+
+        // Act
+        var reply = await client.SetDataAsync(request, cancellationToken: TestContext.Current.CancellationToken);
+        var item = await client.GetDataAsync(new GetDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(DataStatus.Active, item.Status);
+        Assert.Equal(request.Labels, item.Labels);
+    }
+
+    [Theory]
+    [InlineData(17, 1, 1)]
+    [InlineData(1, 0, 1)]
+    [InlineData(1, 64, 1)]
+    [InlineData(1, 1, 64)]
+    public async Task SetDataWithInvalidLabelsReturnsFieldViolation(int count, int keyLength, int valueLength)
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var request = new SetDataRequest { Name = $"labels-{Guid.NewGuid():N}", Value = 1, Labels = { [new string('k', keyLength)] = new string('v', valueLength) } };
+        request.Labels.Add(Enumerable.Range(1, count - 1).ToDictionary(static x => $"key{x}", static _ => "value"));
+
+        // Act
+        using var call = client.SetDataAsync(request, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal("labels", Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
     }
 
     [Fact]
@@ -230,17 +270,37 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         Assert.Equal("page_token", Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
     }
 
+    [Fact]
+    public async Task ListDataWithChangedStatusRejectsToken()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertStatusItemsAsync(client, "status-token", DataStatus.Active, DataStatus.Active);
+        var first = await client.ListDataAsync(new ListDataRequest { Name = prefix, Status = DataStatus.Active, PageSize = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.ListDataAsync(new ListDataRequest { Name = prefix, PageSize = 1, PageToken = first.NextPageToken }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.False(String.IsNullOrEmpty(first.NextPageToken));
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal("page_token", Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
+    }
+
     [Theory]
-    [InlineData(0, "broken!", "page_token")]
-    [InlineData(-1, "", "page_size")]
-    public async Task ListDataWithInvalidRequestReturnsInvalidArgument(int pageSize, string pageToken, string field)
+    [InlineData(0, "broken!", 0, "page_token")]
+    [InlineData(-1, "", 0, "page_size")]
+    [InlineData(0, "", 99, "status")]
+    public async Task ListDataWithInvalidRequestReturnsInvalidArgument(int pageSize, string pageToken, int status, string field)
     {
         // Arrange
         using var channel = factory.CreateChannel();
         var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
 
         // Act
-        using var call = client.ListDataAsync(new ListDataRequest { PageSize = pageSize, PageToken = pageToken }, cancellationToken: TestContext.Current.CancellationToken);
+        using var call = client.ListDataAsync(new ListDataRequest { PageSize = pageSize, PageToken = pageToken, Status = (DataStatus)status }, cancellationToken: TestContext.Current.CancellationToken);
         var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
 
         // Assert
@@ -269,6 +329,26 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
     }
 
     [Fact]
+    public async Task ListDataFiltersByStatus()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertStatusItemsAsync(client, "status", DataStatus.Active, DataStatus.Inactive, DataStatus.Active);
+
+        // Act
+        var (active, pages, total) = await ReadAllPagesAsync(client, new ListDataRequest { Name = prefix, Status = DataStatus.Active, PageSize = 1 });
+        var inactive = await client.ListDataAsync(new ListDataRequest { Name = prefix, Status = DataStatus.Inactive }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        string[] expected = [$"{prefix}-0", $"{prefix}-2"];
+        Assert.Equal(expected, active);
+        Assert.Equal(2, pages);
+        Assert.Equal(2, total);
+        Assert.Equal($"{prefix}-1", Assert.Single(inactive.Items).Name);
+    }
+
+    [Fact]
     public async Task ExportDataReturnsItemsSortedByName()
     {
         // Arrange
@@ -290,6 +370,43 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         // Assert
         string[] expected = [$"{prefix}-c", $"{prefix}-b", $"{prefix}-a"];
         Assert.Equal(expected, names);
+    }
+
+    [Fact]
+    public async Task ExportDataFiltersByStatus()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var prefix = await InsertStatusItemsAsync(client, "export-status", DataStatus.Active, DataStatus.Inactive, DataStatus.Inactive);
+
+        // Act
+        using var call = client.ExportData(new ExportDataRequest { Name = prefix, Status = DataStatus.Inactive }, cancellationToken: TestContext.Current.CancellationToken);
+        var names = new List<string>();
+        await foreach (var item in call.ResponseStream.ReadAllAsync(TestContext.Current.CancellationToken))
+        {
+            names.Add(item.Name);
+        }
+
+        // Assert
+        string[] expected = [$"{prefix}-1", $"{prefix}-2"];
+        Assert.Equal(expected, names);
+    }
+
+    [Fact]
+    public async Task ExportDataWithUnknownStatusReturnsInvalidArgument()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+
+        // Act
+        using var call = client.ExportData(new ExportDataRequest { Status = (DataStatus)99 }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseStream.MoveNext(TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal("status", Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
     }
 
     [Fact]
@@ -381,6 +498,17 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         for (var i = 0; i < values.Length; i++)
         {
             await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-{i}", Value = values[i] }, cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        return prefix;
+    }
+
+    private static async Task<string> InsertStatusItemsAsync(Data.DataClient client, string label, params DataStatus[] statuses)
+    {
+        var prefix = $"{label}-{Guid.NewGuid():N}";
+        for (var i = 0; i < statuses.Length; i++)
+        {
+            await client.SetDataAsync(new SetDataRequest { Name = $"{prefix}-{i}", Value = 1, Status = statuses[i] }, cancellationToken: TestContext.Current.CancellationToken);
         }
 
         return prefix;
