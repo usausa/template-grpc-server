@@ -23,6 +23,9 @@ public sealed partial class DataAccessor
     [ExecuteScalar]
     public partial ValueTask<long> InsertAsync(string name, int value, DataStatus status, string labels, DateTime createdAt, CancellationToken cancellationToken);
 
+    [QueryFirst]
+    public partial ValueTask<DataEntity?> UpdateAsync(long id, string? name, int? value, DataStatus? status, string? labels, int? version, CancellationToken cancellationToken);
+
     [Execute]
-    public partial ValueTask<int> DeleteAsync(long id, CancellationToken cancellationToken);
+    public partial ValueTask<int> DeleteAsync(long id, int? version, CancellationToken cancellationToken);
 }

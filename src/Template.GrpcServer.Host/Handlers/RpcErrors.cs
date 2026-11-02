@@ -30,6 +30,14 @@ public static class RpcErrors
             Details = { Any.Pack(new ErrorInfo { Reason = reason, Domain = "data", Metadata = { [field] = value } }) }
         }.ToRpcException();
 
+    public static RpcException Aborted(string message, string reason, string field, string value) =>
+        new Google.Rpc.Status
+        {
+            Code = (int)Code.Aborted,
+            Message = message,
+            Details = { Any.Pack(new ErrorInfo { Reason = reason, Domain = "data", Metadata = { [field] = value } }) }
+        }.ToRpcException();
+
     public static RpcException NotFound(string message, string resourceType, IEnumerable<string> resourceNames) =>
         new Google.Rpc.Status
         {

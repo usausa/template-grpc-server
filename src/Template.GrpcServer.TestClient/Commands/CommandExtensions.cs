@@ -13,6 +13,7 @@ public static partial class CommandExtensions
         commands.AddCommand<GetCommand>();
         commands.AddCommand<BatchGetCommand>();
         commands.AddCommand<SetCommand>();
+        commands.AddCommand<UpdateCommand>();
         commands.AddCommand<DeleteCommand>();
         commands.AddCommand<ListCommand>();
         commands.AddCommand<ExportCommand>();

@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Template.GrpcServer.Host";
@@ -12,7 +14,8 @@ service Data {
   rpc GetData (GetDataRequest) returns (DataItem);
   rpc BatchGetData (BatchGetDataRequest) returns (BatchGetDataReply);
   rpc SetData (SetDataRequest) returns (SetDataReply);
-  rpc DeleteData (DeleteDataRequest) returns (DeleteDataReply);
+  rpc UpdateData (UpdateDataRequest) returns (DataItem);
+  rpc DeleteData (DeleteDataRequest) returns (google.protobuf.Empty);
   rpc ListData (ListDataRequest) returns (ListDataReply);
   // Server streaming
   rpc ExportData (ExportDataRequest) returns (stream DataItem);
@@ -46,6 +49,8 @@ message DataItem {
   DataStatus status = 5;
   // At most 16 labels. Keys are 1 to 63 characters, values are up to 63 characters.
   map<string, string> labels = 6;
+  // Version in quotes (e.g. "1"). Changes on every update.
+  string etag = 7;
 }
 
 message SetDataRequest {
@@ -60,12 +65,17 @@ message SetDataReply {
   int64 id = 1;
 }
 
-message DeleteDataRequest {
-  int64 id = 1;
+message UpdateDataRequest {
+  // id is required. etag is checked if set.
+  DataItem data = 1;
+  // name / value / status / labels, or "*". Omitted means the fields with values. Empty means no change.
+  google.protobuf.FieldMask update_mask = 2;
 }
 
-message DeleteDataReply {
-  bool deleted = 1;
+message DeleteDataRequest {
+  int64 id = 1;
+  // Checked if set.
+  string etag = 2;
 }
 
 message ListDataRequest {

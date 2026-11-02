@@ -15,5 +15,7 @@ public sealed class DataEntity
     [TypeHandler(typeof(LabelsConverter))]
     public IReadOnlyDictionary<string, string> Labels { get; set; } = new Dictionary<string, string>();
 
+    public int Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

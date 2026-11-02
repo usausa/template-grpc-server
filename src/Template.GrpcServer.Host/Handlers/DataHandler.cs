@@ -3,6 +3,7 @@ namespace Template.GrpcServer.Host.Handlers;
 using System.Buffers.Text;
 
 using Google.Protobuf;
+using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
 
 using Grpc.Core;
@@ -86,10 +87,56 @@ public sealed class DataHandler : Data.DataBase
         return new SetDataReply { Id = entity.Id };
     }
 
-    public override async Task<DeleteDataReply> DeleteData(DeleteDataRequest request, ServerCallContext context)
+    public override async Task<DataItem> UpdateData(UpdateDataRequest request, ServerCallContext context)
     {
-        var status = await dataService.DeleteAsync(request.Id, context.CancellationToken);
-        return new DeleteDataReply { Deleted = status == DataWriteStatus.Success };
+        if (request.Data is null)
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("data", "Data is required.")]);
+        }
+
+        var data = request.Data;
+        var violations = new List<(string Field, string Description)>();
+        var fields = request.UpdateMask is null ? GetPopulatedFields(data) : ParseUpdateMask(request.UpdateMask, violations);
+        violations.AddRange(Validate(fields, "data.", data.Name, data.Value, data.Status, data.Labels));
+        if (!TryParseEtag(data.Etag, out var version))
+        {
+            violations.Add(("data.etag", "Etag is invalid."));
+        }
+
+        if (violations.Count > 0)
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", violations);
+        }
+
+        var update = new DataUpdate(
+            fields.HasFlag(DataFields.Name) ? data.Name : null,
+            fields.HasFlag(DataFields.Value) ? data.Value : null,
+            fields.HasFlag(DataFields.Status) ? ToEntityStatus(data.Status) : null,
+            fields.HasFlag(DataFields.Labels) ? new Dictionary<string, string>(data.Labels) : null);
+        var result = await dataService.UpdateAsync(data.Id, update, version, context.CancellationToken);
+        return result.Status switch
+        {
+            DataWriteStatus.Success => MapToItem(result.Entity!),
+            DataWriteStatus.NotFound => throw RpcErrors.NotFound("Data not found.", "data", [data.Id.ToString(CultureInfo.InvariantCulture)]),
+            DataWriteStatus.VersionMismatch => throw RpcErrors.Aborted("Etag does not match.", "ETAG_MISMATCH", "etag", data.Etag),
+            _ => throw RpcErrors.AlreadyExists("Duplicate name.", "DUPLICATE_NAME", "name", data.Name)
+        };
+    }
+
+    public override async Task<Empty> DeleteData(DeleteDataRequest request, ServerCallContext context)
+    {
+        if (!TryParseEtag(request.Etag, out var version))
+        {
+            throw RpcErrors.InvalidArgument("Request is invalid.", [("etag", "Etag is invalid.")]);
+        }
+
+        var status = await dataService.DeleteAsync(request.Id, version, context.CancellationToken);
+        return status switch
+        {
+            DataWriteStatus.Success => new Empty(),
+            DataWriteStatus.NotFound => throw RpcErrors.NotFound("Data not found.", "data", [request.Id.ToString(CultureInfo.InvariantCulture)]),
+            _ => throw RpcErrors.Aborted("Etag does not match.", "ETAG_MISMATCH", "etag", request.Etag)
+        };
     }
 
     public override async Task<ListDataReply> ListData(ListDataRequest request, ServerCallContext context)
@@ -263,39 +310,98 @@ public sealed class DataHandler : Data.DataBase
     // Helper
     //--------------------------------------------------------------------------------
 
-    private static List<(string Field, string Description)> ValidateSetRequest(SetDataRequest request)
+    private static List<(string Field, string Description)> ValidateSetRequest(SetDataRequest request) =>
+        Validate(DataFields.All, string.Empty, request.Name, request.Value, request.Status, request.Labels);
+
+    private static List<(string Field, string Description)> Validate(DataFields fields, string prefix, string name, int value, DataStatus status, MapField<string, string> labels)
     {
         var violations = new List<(string Field, string Description)>();
-        if (String.IsNullOrEmpty(request.Name) || (request.Name.Length > 50))
+        if (fields.HasFlag(DataFields.Name) && (String.IsNullOrEmpty(name) || (name.Length > 50)))
         {
-            violations.Add(("name", "Name is required and must be 50 characters or less."));
+            violations.Add(($"{prefix}name", "Name is required and must be 50 characters or less."));
         }
 
-        if (request.Value is < 0 or > 1_000_000)
+        if (fields.HasFlag(DataFields.Value) && (value is < 0 or > 1_000_000))
         {
-            violations.Add(("value", "Value must be between 0 and 1000000."));
+            violations.Add(($"{prefix}value", "Value must be between 0 and 1000000."));
         }
 
-        if (!System.Enum.IsDefined(request.Status))
+        if (fields.HasFlag(DataFields.Status) && !System.Enum.IsDefined(status))
         {
-            violations.Add(("status", "Status is invalid."));
+            violations.Add(($"{prefix}status", "Status is invalid."));
         }
 
-        if ((request.Labels.Count > MaxLabelCount) || request.Labels.Any(static x => (x.Key.Length is 0 or > MaxLabelLength) || (x.Value.Length > MaxLabelLength)))
+        if (fields.HasFlag(DataFields.Labels) && ((labels.Count > MaxLabelCount) || labels.Any(static x => (x.Key.Length is 0 or > MaxLabelLength) || (x.Value.Length > MaxLabelLength))))
         {
-            violations.Add(("labels", $"Labels must be {MaxLabelCount} items or less, with keys of 1 to {MaxLabelLength} characters and values of {MaxLabelLength} characters or less."));
+            violations.Add(($"{prefix}labels", $"Labels must be {MaxLabelCount} items or less, with keys of 1 to {MaxLabelLength} characters and values of {MaxLabelLength} characters or less."));
         }
 
         return violations;
+    }
+
+    private static DataFields GetPopulatedFields(DataItem data) =>
+        (data.Name.Length > 0 ? DataFields.Name : DataFields.None) |
+        (data.Value != 0 ? DataFields.Value : DataFields.None) |
+        (data.Status != DataStatus.Unspecified ? DataFields.Status : DataFields.None) |
+        (data.Labels.Count > 0 ? DataFields.Labels : DataFields.None);
+
+    private static DataFields ParseUpdateMask(FieldMask mask, List<(string Field, string Description)> violations)
+    {
+        var fields = DataFields.None;
+        foreach (var path in mask.Paths)
+        {
+            DataFields? field = path switch
+            {
+                "*" => DataFields.All,
+                "name" => DataFields.Name,
+                "value" => DataFields.Value,
+                "status" => DataFields.Status,
+                "labels" => DataFields.Labels,
+                "id" or "created_at" or "etag" => DataFields.None,
+                _ => null
+            };
+            if (field is null)
+            {
+                violations.Add(("update_mask", $"Path '{path}' is not supported."));
+            }
+            else
+            {
+                fields |= field.Value;
+            }
+        }
+
+        return fields;
+    }
+
+    private static string FormatEtag(int version) => $"\"{version}\"";
+
+    private static bool TryParseEtag(string value, out int? version)
+    {
+        version = null;
+        if (value.Length == 0)
+        {
+            return true;
+        }
+
+        if ((value.Length > 2) && (value[0] == '"') && (value[^1] == '"') && Int32.TryParse(value.AsSpan(1, value.Length - 2), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+        {
+            version = parsed;
+            return true;
+        }
+
+        return false;
     }
 
     private static DataEntity ToEntity(SetDataRequest request) => new()
     {
         Name = request.Name,
         Value = request.Value,
-        Status = request.Status == DataStatus.Unspecified ? EntityDataStatus.Active : (EntityDataStatus)(int)request.Status,
+        Status = ToEntityStatus(request.Status),
         Labels = new Dictionary<string, string>(request.Labels)
     };
+
+    private static EntityDataStatus ToEntityStatus(DataStatus status) =>
+        status == DataStatus.Unspecified ? EntityDataStatus.Active : (EntityDataStatus)(int)status;
 
     private static EntityDataStatus? ToFilterStatus(DataStatus status) =>
         status == DataStatus.Unspecified ? null : (EntityDataStatus)(int)status;
@@ -348,7 +454,8 @@ public sealed class DataHandler : Data.DataBase
             Name = entity.Name,
             Value = entity.Value,
             CreatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(entity.CreatedAt, DateTimeKind.Utc)),
-            Status = (DataStatus)(int)entity.Status
+            Status = (DataStatus)(int)entity.Status,
+            Etag = FormatEtag(entity.Version)
         };
         foreach (var label in entity.Labels)
         {
@@ -356,5 +463,16 @@ public sealed class DataHandler : Data.DataBase
         }
 
         return item;
+    }
+
+    [Flags]
+    private enum DataFields
+    {
+        None = 0,
+        Name = 1,
+        Value = 2,
+        Status = 4,
+        Labels = 8,
+        All = Name | Value | Status | Labels
     }
 }

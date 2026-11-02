@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS Data (
     Value      INTEGER  NOT NULL,
     Status     INTEGER  NOT NULL,
     Labels     TEXT     NOT NULL,
+    Version    INTEGER  NOT NULL,
     CreatedAt  TEXT     NOT NULL,
     PRIMARY KEY (Id AUTOINCREMENT),
     UNIQUE (Name)

@@ -138,7 +138,172 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
     }
 
     [Fact]
-    public async Task DeleteDataReturnsDeletedOnlyOnce()
+    public async Task UpdateDataWithMaskChangesOnlyMaskedFields()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var name = $"update-{Guid.NewGuid():N}";
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = name, Value = 10, Labels = { ["env"] = "dev" } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var item = await client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Value = 20 }, UpdateMask = new FieldMask { Paths = { "value", "id" } } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(name, item.Name);
+        Assert.Equal(20, item.Value);
+        Assert.Equal(DataStatus.Active, item.Status);
+        Assert.Equal("dev", item.Labels["env"]);
+        Assert.Equal("\"2\"", item.Etag);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithoutMaskChangesPopulatedFields()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var name = $"update-{Guid.NewGuid():N}";
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = name, Value = 10, Labels = { ["env"] = "dev" } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var item = await client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Value = 30, Status = DataStatus.Inactive } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(name, item.Name);
+        Assert.Equal(30, item.Value);
+        Assert.Equal(DataStatus.Inactive, item.Status);
+        Assert.Equal("dev", item.Labels["env"]);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithWildcardReplacesAllFields()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var name = $"update-{Guid.NewGuid():N}";
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = $"{name}-old", Value = 10, Status = DataStatus.Inactive, Labels = { ["env"] = "dev" } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var item = await client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Name = name }, UpdateMask = new FieldMask { Paths = { "*" } } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(name, item.Name);
+        Assert.Equal(0, item.Value);
+        Assert.Equal(DataStatus.Active, item.Status);
+        Assert.Empty(item.Labels);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithEmptyMaskReturnsItemUnchanged()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = $"update-{Guid.NewGuid():N}", Value = 10 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var item = await client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Value = 20 }, UpdateMask = new FieldMask() }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(10, item.Value);
+        Assert.Equal("\"1\"", item.Etag);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithStaleEtagReturnsAborted()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = $"update-{Guid.NewGuid():N}", Value = 10 }, cancellationToken: TestContext.Current.CancellationToken);
+        var first = await client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Value = 20, Etag = "\"1\"" } }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Value = 30, Etag = "\"1\"" } }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal("\"2\"", first.Etag);
+        Assert.Equal(StatusCode.Aborted, exception.StatusCode);
+        Assert.Equal("ETAG_MISMATCH", exception.GetRpcStatus()?.GetDetail<ErrorInfo>()?.Reason);
+    }
+
+    [Theory]
+    [InlineData("unknown", 1, "", "update_mask")]
+    [InlineData("labels.env", 1, "", "update_mask")]
+    [InlineData("value", -1, "", "data.value")]
+    [InlineData("value", 1, "1", "data.etag")]
+    [InlineData("value", 1, "W/\"1\"", "data.etag")]
+    public async Task UpdateDataWithInvalidRequestReturnsFieldViolation(string path, int value, string etag, string field)
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+
+        // Act
+        using var call = client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = Int64.MaxValue, Value = value, Etag = etag }, UpdateMask = new FieldMask { Paths = { path } } }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.Equal(field, Assert.Single(exception.GetRpcStatus()!.GetDetail<BadRequest>()!.FieldViolations).Field);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithUnknownIdReturnsNotFound()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+
+        // Act
+        using var call = client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = Int64.MaxValue, Value = 1 } }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateDataWithDuplicateNameReturnsAlreadyExists()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var name = $"update-{Guid.NewGuid():N}";
+        await client.SetDataAsync(new SetDataRequest { Name = $"{name}-a", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = $"{name}-b", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.UpdateDataAsync(new UpdateDataRequest { Data = new DataItem { Id = reply.Id, Name = $"{name}-a" } }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.AlreadyExists, exception.StatusCode);
+        Assert.Equal("DUPLICATE_NAME", exception.GetRpcStatus()?.GetDetail<ErrorInfo>()?.Reason);
+    }
+
+    [Fact]
+    public async Task DeleteDataReturnsNotFoundOnSecondCall()
+    {
+        // Arrange
+        using var channel = factory.CreateChannel();
+        var client = new Data.DataClient(factory.CreateAuthorizedInvoker(channel));
+        var reply = await client.SetDataAsync(new SetDataRequest { Name = $"delete-{Guid.NewGuid():N}", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+        await client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        using var call = client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+
+        // Assert
+        Assert.Equal(StatusCode.NotFound, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteDataWithStaleEtagReturnsAborted()
     {
         // Arrange
         using var channel = factory.CreateChannel();
@@ -146,12 +311,15 @@ public sealed class DataHandlerTests : IClassFixture<TestApplicationFactory>
         var reply = await client.SetDataAsync(new SetDataRequest { Name = $"delete-{Guid.NewGuid():N}", Value = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         // Act
-        var first = await client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
-        var second = await client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
+        using var stale = client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id, Etag = "\"2\"" }, cancellationToken: TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RpcException>(() => stale.ResponseAsync);
+        await client.DeleteDataAsync(new DeleteDataRequest { Id = reply.Id, Etag = "\"1\"" }, cancellationToken: TestContext.Current.CancellationToken);
+        using var get = client.GetDataAsync(new GetDataRequest { Id = reply.Id }, cancellationToken: TestContext.Current.CancellationToken);
+        var deleted = await Assert.ThrowsAsync<RpcException>(() => get.ResponseAsync);
 
         // Assert
-        Assert.True(first.Deleted);
-        Assert.False(second.Deleted);
+        Assert.Equal(StatusCode.Aborted, exception.StatusCode);
+        Assert.Equal(StatusCode.NotFound, deleted.StatusCode);
     }
 
     [Fact]

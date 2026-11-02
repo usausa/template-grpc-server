@@ -51,6 +51,7 @@ public sealed class DataService
         try
         {
             entity.CreatedAt = context.Now.UtcDateTime;
+            entity.Version = 1;
             entity.Id = await dataAccessor.InsertAsync(entity.Name, entity.Value, entity.Status, LabelsConverter.ToDb(entity.Labels), entity.CreatedAt, cancellationToken);
             return DataWriteStatus.Success;
         }
@@ -60,10 +61,45 @@ public sealed class DataService
         }
     }
 
-    public async ValueTask<DataWriteStatus> DeleteAsync(long id, CancellationToken cancellationToken = default)
+    public async ValueTask<DataUpdateResult> UpdateAsync(long id, DataUpdate update, int? version, CancellationToken cancellationToken = default)
     {
-        var rows = await dataAccessor.DeleteAsync(id, cancellationToken);
-        return rows > 0 ? DataWriteStatus.Success : DataWriteStatus.NotFound;
+        if (update is { Name: null, Value: null, Status: null, Labels: null })
+        {
+            var current = await dataAccessor.QueryAsync(id, cancellationToken);
+            if (current is null)
+            {
+                return new DataUpdateResult(DataWriteStatus.NotFound, null);
+            }
+
+            return (version is null) || (current.Version == version) ? new DataUpdateResult(DataWriteStatus.Success, current) : new DataUpdateResult(DataWriteStatus.VersionMismatch, null);
+        }
+
+        try
+        {
+            var entity = await dataAccessor.UpdateAsync(id, update.Name, update.Value, update.Status, update.Labels is null ? null : LabelsConverter.ToDb(update.Labels), version, cancellationToken);
+            if (entity is not null)
+            {
+                return new DataUpdateResult(DataWriteStatus.Success, entity);
+            }
+
+            var exists = version.HasValue && await dataAccessor.QueryAsync(id, cancellationToken) is not null;
+            return new DataUpdateResult(exists ? DataWriteStatus.VersionMismatch : DataWriteStatus.NotFound, null);
+        }
+        catch (DbException ex) when (dialect.IsDuplicate(ex))
+        {
+            return new DataUpdateResult(DataWriteStatus.Duplicate, null);
+        }
+    }
+
+    public async ValueTask<DataWriteStatus> DeleteAsync(long id, int? version, CancellationToken cancellationToken = default)
+    {
+        if (await dataAccessor.DeleteAsync(id, version, cancellationToken) > 0)
+        {
+            return DataWriteStatus.Success;
+        }
+
+        var exists = version.HasValue && await dataAccessor.QueryAsync(id, cancellationToken) is not null;
+        return exists ? DataWriteStatus.VersionMismatch : DataWriteStatus.NotFound;
     }
 
     private static object GetSortKey(DataCursor cursor, DataSort sort) => sort switch

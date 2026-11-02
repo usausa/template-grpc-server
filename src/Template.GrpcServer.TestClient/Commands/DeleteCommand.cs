@@ -17,6 +17,9 @@ public sealed class DeleteCommand : ICommandHandler
     [Option<long>("--id", "-i", Description = "id", Required = true)]
     public long Id { get; set; }
 
+    [Option<string>("--etag", Description = "etag")]
+    public string? Etag { get; set; }
+
     public DeleteCommand(TimeProvider timeProvider, ClientSetting setting, Data.DataClient client)
     {
         this.timeProvider = timeProvider;
@@ -27,11 +30,7 @@ public sealed class DeleteCommand : ICommandHandler
     public async ValueTask ExecuteAsync(CommandContext context)
     {
         var deadline = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(setting.Deadline);
-        var reply = await client.DeleteDataAsync(new DeleteDataRequest { Id = Id }, deadline: deadline, cancellationToken: context.CancellationToken);
-        Console.WriteLine(reply.Deleted ? "OK" : "NG: Not found.");
-        if (!reply.Deleted)
-        {
-            context.ExitCode = -1;
-        }
+        await client.DeleteDataAsync(new DeleteDataRequest { Id = Id, Etag = Etag ?? string.Empty }, deadline: deadline, cancellationToken: context.CancellationToken);
+        Console.WriteLine("OK");
     }
 }
