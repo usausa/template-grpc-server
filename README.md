@@ -1,7 +1,5 @@
 # Template project for gRPC server
 
-English | [日本語](README.ja.md)
-
 [Template](https://usausa.github.io/template/) project for gRPC server.
 
 # ✅ Implement
