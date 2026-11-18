@@ -75,7 +75,11 @@ public sealed class StorageHandler : Storage.StorageBase
         await writing;
 
         // grpc-encodingは要求メタデータから除外されるので、HttpContextから読む
-        log.InfoFileUploaded(metadata.Name, size, context.GetHttpContext().Request.Headers["grpc-encoding"]);
+        if (log.IsEnabled(LogLevel.Information))
+        {
+            log.InfoFileUploaded(metadata.Name, size, context.GetHttpContext().Request.Headers["grpc-encoding"]);
+        }
+
         return new UploadReply { Name = metadata.Name, Size = size };
     }
 
@@ -118,6 +122,9 @@ public sealed class StorageHandler : Storage.StorageBase
             await responseStream.WriteAsync(new DownloadReply { Chunk = ByteString.CopyFrom(buffer, 0, read) }, context.CancellationToken);
         }
 
-        log.InfoFileDownloaded(request.Name, stream.Length, context.GetHttpContext().Response.Headers["grpc-encoding"]);
+        if (log.IsEnabled(LogLevel.Information))
+        {
+            log.InfoFileDownloaded(request.Name, stream.Length, context.GetHttpContext().Response.Headers["grpc-encoding"]);
+        }
     }
 }

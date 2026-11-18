@@ -319,6 +319,11 @@ public static class ApplicationExtensions
 
     public static void LogStartupInformation(this WebApplication app)
     {
+        if (!app.Logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
         ThreadPool.GetMinThreads(out var workerThreads, out var completionPortThreads);
 
         var prometheusSection = app.Configuration.GetSection("Prometheus");

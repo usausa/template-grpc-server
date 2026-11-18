@@ -7,16 +7,23 @@ using Grpc.Core;
 
 public sealed class ApplicationInstrument : IDisposable
 {
-    private readonly Meter meter;
+    private readonly TimeProvider timeProvider;
 
-    public ActivitySource ActivitySource { get; }
+    private readonly long startTimestamp;
+
+    private readonly Meter meter;
 
     private readonly Counter<long> requestLongExecution;
 
     private readonly Counter<long> requestExecution;
 
-    public ApplicationInstrument(IMeterFactory meterFactory)
+    public ActivitySource ActivitySource { get; }
+
+    public ApplicationInstrument(TimeProvider timeProvider, IMeterFactory meterFactory)
     {
+        this.timeProvider = timeProvider;
+        startTimestamp = timeProvider.GetTimestamp();
+
         ActivitySource = new ActivitySource(Source.Name, Source.Version);
         meter = meterFactory.Create(Source.Name, Source.Version);
 
@@ -28,11 +35,12 @@ public sealed class ApplicationInstrument : IDisposable
 
     public void Dispose()
     {
+        ActivitySource.Dispose();
         meter.Dispose();
     }
 
-    private static long ObserveApplicationUptime() =>
-        (long)(DateTime.Now - Process.GetCurrentProcess().StartTime).TotalSeconds;
+    private long ObserveApplicationUptime() =>
+        (long)timeProvider.GetElapsedTime(startTimestamp).TotalSeconds;
 
     public void IncrementRequestExecution(string method, StatusCode status) =>
         requestExecution.Add(1, new("rpc.method", method), new("rpc.grpc.status_code", (int)status));
