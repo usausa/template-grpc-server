@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/Template.GrpcServer.AppHost/Template.GrpcServer.AppHost.csproj"
+  }
+}

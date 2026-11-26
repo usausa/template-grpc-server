@@ -1,6 +1,6 @@
 // ReSharper disable StringLiteralTypo
 var builder = DistributedApplication.CreateBuilder(args);
 
-builder.AddProject<Projects.Template_GrpcServer_Host>("grpcserver");
+builder.AddDotnetProject("grpcserver", "../Template.GrpcServer.Host/Template.GrpcServer.Host.csproj");
 
 builder.Build().Run();
